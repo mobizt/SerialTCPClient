@@ -3,7 +3,7 @@
 
 #include "SerialTCPClient.h"
 
-SerialTCPClient client(Serial2);
+SerialTCPClient client(Serial2 /* Serial */, 0 /* slot */);
 
 int ms = 0;
 
@@ -13,8 +13,10 @@ void setup()
   Serial.begin(115200);
 
   Serial2.begin(115200, SERIAL_8N1, 16 /* rx */, 17 /* tx */);
-
-  client.begin(0 /* slot */);
+  
+  // Or set it later
+  // client.begin(Serial2);
+  // client.setSlot(0 /* slot */);
 
   client.setWiFi("WIFI_SSID", "WIFI_PASSWORD");
   client.connectNetwork();

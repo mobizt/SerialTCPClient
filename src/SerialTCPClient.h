@@ -179,10 +179,20 @@ private:
   }
 
 public:
+  SerialTCPClient(HardwareSerial &sink, int slot)
+      : sink(sink), slot(slot) {}
+      
   SerialTCPClient(HardwareSerial &sink)
       : sink(sink) {}
 
-  void begin(int slot)
+  // Begin with serial (if you want to re‑bind or initialize)
+  void begin(HardwareSerial &serial)
+  {
+    this->sink = serial;
+  }
+
+  // Set slot separately
+  void setSlot(int slot)
   {
     this->slot = slot;
   }
