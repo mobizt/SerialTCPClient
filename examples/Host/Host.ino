@@ -18,7 +18,7 @@ void setup()
   ssl_client.setInsecure();
   ssl_client.setBufferSizes(2048, 1024);
 
-  host.setClient(&ssl_client, 0);
+  host.setClient(&ssl_client, 0/* slot */);
 }
 
 void loop()
