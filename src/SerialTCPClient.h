@@ -182,7 +182,7 @@ public:
   SerialTCPClient(HardwareSerial &sink)
       : sink(sink) {}
 
-  void begin(int slot, unsigned long baud = 115200)
+  void begin(int slot)
   {
     this->slot = slot;
   }
