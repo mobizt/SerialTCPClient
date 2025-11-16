@@ -5,6 +5,8 @@
 #include <WiFiClientSecure.h>
 #endif
 
+// To show debug info
+#define ENABLE_DEBUG_OUTPUT
 #include "SerialTCPHost.h"
 
 WiFiClientSecure ssl_client;

@@ -11,9 +11,10 @@
 
 namespace SerialTCPHelper_NS
 {
-  static inline void DEBUG_STATUS(const char *x)
+  static inline void DEBUG_STATUS(bool enable, const char *x)
   {
-    Serial.print(x);
+    if (enable)
+      Serial.print(x);
   }
 
   struct serial_bridge_status_context

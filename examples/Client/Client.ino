@@ -1,6 +1,8 @@
 
 // ESP32 code that runs as a client
 
+// To show debug info
+#define ENABLE_DEBUG_OUTPUT
 #include "SerialTCPClient.h"
 
 SerialTCPClient client(Serial2 /* Serial */, 0 /* slot */);
@@ -13,7 +15,7 @@ void setup()
   Serial.begin(115200);
 
   Serial2.begin(115200, SERIAL_8N1, 16 /* rx */, 17 /* tx */);
-  
+
   // Or set it later
   // client.begin(Serial2);
   // client.setSlot(0 /* slot */);
@@ -21,6 +23,10 @@ void setup()
   client.setWiFi("WIFI_SSID", "WIFI_PASSWORD");
   client.connectNetwork();
   client.setAutoReconnect(true);
+  client.setAutoReconnect(true);
+  client.setRetryLimit(3);
+  client.setRetryDelay(7000);
+  client.setDebugLevel(2);
 }
 
 void loop()
@@ -48,12 +54,15 @@ void loop()
       client.write((const uint8_t *)request_part1, strlen(request_part1));
       client.write((const uint8_t *)request_part2, strlen(request_part2));
 
+      while (client.available() == 0)
+        delay(0);
+
       while (client.available() > 0)
       {
         int c = client.read();
         if (c > 0)
         {
-          Serial.print(c);
+          Serial.print((char)c);
         }
       }
 

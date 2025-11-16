@@ -52,6 +52,7 @@ void setup()
   client.setWiFi("WIFI_SSID", "WIFI_PASSWORD");
   client.connectNetwork();
   client.setAutoReconnect(true);
+  client.setDebugLevel(1); // 0=None, 1=info, 2=verbose
 
   if (client.connect("example.com", 80))
   {
@@ -67,7 +68,7 @@ void setup()
       int b = client.read();
       if (b >= 0)
       {
-        Serial.write((uint8_t)b);
+        Serial.print((char)b);
       }
     }
 

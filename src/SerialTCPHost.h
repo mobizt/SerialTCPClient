@@ -40,6 +40,11 @@ using namespace SerialTCPHelper_NS;
 class SerialTCPHost
 {
 public:
+  /**
+   * @brief Constructor for SerialTCPHost.
+   * @param sink The Stream interface (e.g., Serial, Serial1) used for
+   * communicating with the device running SerialTCPClient.
+   */
   SerialTCPHost(Stream &sink)
       : sink(sink)
   {
@@ -50,6 +55,13 @@ public:
     }
   }
 
+  /**
+   * @brief Binds a specific Client instance (e.g., WiFiClient) to a numbered slot.
+   * @param client Pointer to the Client object (e.g., WiFiClient, EthernetClient).
+   * @param slot The slot ID (0 to MAX_TCP_CLIENTS-1) to assign this client to.
+   * @param tlsCb (Optional) A callback function to be invoked when a STARTTLS
+   * command is received for this specific slot.
+   */
   void setClient(Client *client, int slot, StartTLSCallback tlsCb = NULL)
   {
     if (slot < MAX_TCP_CLIENTS && slot > -1)
@@ -59,6 +71,11 @@ public:
     }
   }
 
+  /**
+   * @brief Main processing loop.
+   * This function must be called repeatedly in the main Arduino loop()
+   * to process incoming serial commands and manage network connections.
+   */
   void loop()
   {
     handleSerialCommands();
@@ -95,7 +112,9 @@ private:
     // We trust the available in case data has been read.
     if (total_read > 0 && ctx->client->available() == 0)
     {
-      DEBUG_STATUS("✅ Success (READRESP END_DATA)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP END_DATA)\r\n");
+#endif
       sendFramedResponse(ctx, "END_DATA", "READRESP");
       return false;
     }
@@ -109,7 +128,9 @@ private:
 
     if (ctx->client->available() == 0)
     {
-      DEBUG_STATUS("❌ No data available (READRESP)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "❌ No data available (READRESP)\r\n");
+#endif
       sendFramedResponse(ctx, "FALSE", "READRESP");
       return false;
     }
@@ -133,7 +154,9 @@ private:
           sendFramedResponse(ctx, "TRUE", "READRESP", buf, idx);
           total_read += idx;
           idx = 0;
-          DEBUG_STATUS("✅ Success (READRESP)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+          DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
+#endif
           return true;
         }
 
@@ -147,13 +170,17 @@ private:
           sendFramedResponse(ctx, "TRUE", "READRESP", buf, idx);
           total_read += idx;
           idx = 0;
-          DEBUG_STATUS("✅ Success (READRESP)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+          DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
+#endif
           return true;
         }
         _c = c;
       }
     }
-    DEBUG_STATUS("✅ Success (READRESP)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+    DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
+#endif
     return total_read > 0;
   }
 
@@ -267,13 +294,16 @@ private:
 
       if (!validate_args(false))
         goto fail_arg_check;
-
-      DEBUG_STATUS("Connecting to network (CONNECTNET)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Connecting to network (CONNECTNET)... ");
+#endif
 
       if (is_busy)
       {
         sendFramedResponse(nullptr, "FALSE", "CONNECTNET");
-        DEBUG_STATUS("❌ Host is busy (CONNECTNET)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "❌ Host is busy (CONNECTNET)\r\n");
+#endif
         return;
       }
 
@@ -293,8 +323,9 @@ private:
 
       status.net_status = WiFi.status() == WL_CONNECTED;
       sendFramedResponse(nullptr, status.net_status ? "TRUE" : "FALSE", "CONNECTNET");
-
-      DEBUG_STATUS(status.net_status ? "✅ Connected (CONNECTNET)\r\n" : "❌ Disconnected (CONNECTNET)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, status.net_status ? "✅ Connected (CONNECTNET)\r\n" : "❌ Disconnected (CONNECTNET)\r\n");
+#endif
     }
     else if (strcmp(keyword_buf, "DISCONNECTNET") == 0)
     {
@@ -302,13 +333,16 @@ private:
       if (!validate_args(false))
         goto fail_arg_check;
 
-      DEBUG_STATUS("Disconnecting WiFi (DISCONNECTNET)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Disconnecting WiFi (DISCONNECTNET)... ");
+#endif
 
       WiFi.disconnect();
       status.net_status = false;
       sendFramedResponse(nullptr, "TRUE", "DISCONNECTNET");
-
-      DEBUG_STATUS("✅ Success (DISCONNECTNET)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (DISCONNECTNET)\r\n");
+#endif
     }
     else if (strcmp(keyword_buf, "NETSTATUS") == 0)
     {
@@ -316,11 +350,14 @@ private:
       if (!validate_args(false))
         goto fail_arg_check;
 
-      DEBUG_STATUS("Getting net status (NETSTATUS)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "Getting net status (NETSTATUS)... ");
+#endif
 
       sendFramedResponse(nullptr, WiFi.status() == WL_CONNECTED ? "TRUE" : "FALSE", "NETSTATUS");
-
-      DEBUG_STATUS(WiFi.status() == WL_CONNECTED ? "✅ Connected (NETSTATUS)\r\n" : "❌ Disconnected (NETSTATUS)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, WiFi.status() == WL_CONNECTED ? "✅ Connected (NETSTATUS)\r\n" : "❌ Disconnected (NETSTATUS)\r\n");
+#endif
     }
     else if (ctx && strcmp(keyword_buf, "STOP") == 0)
     {
@@ -330,33 +367,39 @@ private:
 
       ctx->tlsStarted = false;
 
-      DEBUG_STATUS("Stopping connection (STOP)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Stopping connection (STOP)... ");
+#endif
 
       if (ctx->client->connected())
         ctx->client->stop();
       sendFramedResponse(ctx, "TRUE", "STOP");
-
-      DEBUG_STATUS("✅ Success (STOP)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (STOP)\r\n");
+#endif
     }
     else if (ctx && strcmp(keyword_buf, "SERVERSTATUS") == 0)
     {
 
       if (!validate_args(false))
         goto fail_arg_check;
-
-      DEBUG_STATUS("Checking server status (SERVERSTATUS)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "Checking server status (SERVERSTATUS)... ");
+#endif
 
       sendFramedResponse(ctx, ctx->client->connected() ? "TRUE" : "FALSE", "SERVERSTATUS");
-
-      DEBUG_STATUS(ctx->client->connected() ? "✅ Connected (SERVERSTATUS)\r\n" : "❌ Disconnected (SERVERSTATUS)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, ctx->client->connected() ? "✅ Connected (SERVERSTATUS)\r\n" : "❌ Disconnected (SERVERSTATUS)\r\n");
+#endif
     }
     else if (ctx && strcmp(keyword_buf, "STARTTLS") == 0)
     {
 
       if (!validate_args(false))
         goto fail_arg_check;
-
-      DEBUG_STATUS("Starting TLS (STARTTLS)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Starting TLS (STARTTLS)... ");
+#endif
 
       bool tlsReady = false;
 
@@ -366,12 +409,16 @@ private:
       if (!ctx->sslMode && tlsReady)
       {
         ctx->tlsStarted = true;
-        DEBUG_STATUS("✅ Success (STARTTLS)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "✅ Success (STARTTLS)\r\n");
+#endif
         sendFramedResponse(ctx, "TRUE", "STARTTLS");
       }
       else
       {
-        DEBUG_STATUS("❌ Error (STARTTLS)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "❌ Error (STARTTLS)\r\n");
+#endif
         sendFramedResponse(ctx, "FALSE", "STARTTLS");
       }
     }
@@ -382,7 +429,9 @@ private:
       if (!decoded_args)
         goto fail_arg_check;
 
-      DEBUG_STATUS("Setting WiFi (SETWIFI)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Setting WiFi (SETWIFI)... ");
+#endif
 
       const char *creds = (const char *)decoded_args;
       const char *sep = strchr(creds, ' ');
@@ -395,13 +444,16 @@ private:
         strncpy(pass, sep + 1, sizeof(pass) - 1);
         pass[sizeof(pass) - 1] = '\0';
         sendFramedResponse(nullptr, "TRUE", "SETWIFI");
-
-        DEBUG_STATUS("✅ Success (SETWIFI)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "✅ Success (SETWIFI)\r\n");
+#endif
       }
       else
       {
         sendFramedResponse(nullptr, "FALSE", "SETWIFI");
-        DEBUG_STATUS("❌ Error (SETWIFI)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "❌ Error (SETWIFI)\r\n");
+#endif
       }
     }
     // Command: AUTO_RECONNECT
@@ -411,12 +463,19 @@ private:
       if (!decoded_args)
         goto fail_arg_check;
 
-      DEBUG_STATUS("Setting auto reconnect (AUTO_RECONNECT)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Setting auto reconnect (AUTO_RECONNECT)... ");
+#endif
 
-      autoReconnect = strcmp((const char *)decoded_args, "ON") == 0;
+      if (strcmp((const char *)decoded_args, "OFF") == 0)
+        autoReconnect = false;
+      else
+
+        autoReconnect = strcmp((const char *)decoded_args, "ON") == 0;
       sendFramedResponse(nullptr, "TRUE", "AUTO_RECONNECT");
-
-      DEBUG_STATUS("✅ Success (AUTO_RECONNECT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (AUTO_RECONNECT)\r\n");
+#endif
     }
     // Command: RETRYLIMIT
     else if (strcmp(keyword_buf, "RETRYLIMIT") == 0)
@@ -424,13 +483,15 @@ private:
 
       if (!decoded_args)
         goto fail_arg_check;
-
-      DEBUG_STATUS("Setting retry limit (RETRYLIMIT)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Setting retry limit (RETRYLIMIT)... ");
+#endif
 
       retryLimit = atoi((const char *)decoded_args);
       sendFramedResponse(nullptr, "TRUE", "RETRYLIMIT");
-
-      DEBUG_STATUS("✅ Success (RETRYLIMIT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (RETRYLIMIT)\r\n");
+#endif
     }
     // Command: RETRYDELAY
     else if (strcmp(keyword_buf, "RETRYDELAY") == 0)
@@ -438,13 +499,15 @@ private:
 
       if (!decoded_args)
         goto fail_arg_check;
-
-      DEBUG_STATUS("Setting retry delay (RETRYDELAY)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Setting retry delay (RETRYDELAY)... ");
+#endif
 
       retryDelay = atol((const char *)decoded_args);
       sendFramedResponse(nullptr, "TRUE", "RETRYDELAY");
-
-      DEBUG_STATUS("✅ Success (RETRYDELAY)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (RETRYDELAY)\r\n");
+#endif
     }
     // Command: DEBUGLEVEL
     else if (strcmp(keyword_buf, "DEBUGLEVEL") == 0)
@@ -453,12 +516,15 @@ private:
       if (!decoded_args)
         goto fail_arg_check;
 
-      DEBUG_STATUS("Setting debug level (DEBUGLEVEL)... ");
-
       debugLevel = atoi((const char *)decoded_args);
-      sendFramedResponse(nullptr, "TRUE", "DEBUGLEVEL");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Setting debug level (DEBUGLEVEL)... ");
+#endif
 
-      DEBUG_STATUS("✅ Success (DEBUGLEVEL)\r\n");
+      sendFramedResponse(nullptr, "TRUE", "DEBUGLEVEL");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "✅ Success (DEBUGLEVEL)\r\n");
+#endif
     }
     // Command: CONNECT
     else if (ctx && strcmp(keyword_buf, "CONNECT") == 0)
@@ -466,13 +532,16 @@ private:
 
       if (!decoded_args)
         goto fail_arg_check;
-
-      DEBUG_STATUS("Connecting to server (CONNECT)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 0, "Connecting to server (CONNECT)... ");
+#endif
 
       if (is_busy)
       {
         sendFramedResponse(ctx, "FALSE", "CONNECT");
-        DEBUG_STATUS("❌ Host is busy (CONNECT)");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "❌ Host is busy (CONNECT)");
+#endif
         return;
       }
 
@@ -494,25 +563,33 @@ private:
           {
             ctx->tlsStarted = ctx->sslMode;
             sendFramedResponse(ctx, "TRUE", "CONNECT");
-            DEBUG_STATUS("✅ Success (CONNECT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+            DEBUG_STATUS(debugLevel > 0, "✅ Success (CONNECT)\r\n");
+#endif
           }
           else
           {
             sendFramedResponse(ctx, "FALSE", "CONNECT");
-            DEBUG_STATUS("❌ Unable to connect to server (CONNECT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+            DEBUG_STATUS(debugLevel > 0, "❌ Unable to connect to server (CONNECT)\r\n");
+#endif
           }
         }
         else
         {
           sendFramedResponse(ctx, "FALSE", "CONNECT");
-          DEBUG_STATUS("❌ Error (CONNECT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+          DEBUG_STATUS(debugLevel > 0, "❌ Error (CONNECT)\r\n");
+#endif
         }
         is_busy = false;
       }
       else
       {
         sendFramedResponse(ctx, "FALSE", "CONNECT");
-        DEBUG_STATUS("❌ Network is not connected (CONNECT)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 0, "❌ Network is not connected (CONNECT)\r\n");
+#endif
       }
     }
     // Command: WRITE
@@ -522,20 +599,24 @@ private:
       total_read = 0; // Reset total read counter for new transaction
       if (!decoded_args)
         goto fail_arg_check;
-
-      DEBUG_STATUS("Writing server request (WRITE)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "Writing server request (WRITE)... ");
+#endif
 
       if (!ctx->client->connected())
       {
         sendFramedResponse(ctx, "FALSE", "WRITE");
-        DEBUG_STATUS("❌ Error (WRITE)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+        DEBUG_STATUS(debugLevel > 1, "❌ Error (WRITE)\r\n");
+#endif
         goto cleanup;
       }
 
       int sent = ctx->client->write(decoded_args, decoded_arg_len);
       sendFramedResponse(ctx, sent == (int)decoded_arg_len ? "TRUE" : "FALSE", "WRITE");
-
-      DEBUG_STATUS(sent == (int)decoded_arg_len ? "✅ Success (WRITE)\r\n" : "❌ Error (WRITE)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, sent == (int)decoded_arg_len ? "✅ Success (WRITE)\r\n" : "❌ Error (WRITE)\r\n");
+#endif
     }
     // Command: READRESP
     else if (ctx && strcmp(keyword_buf, "READRESP") == 0)
@@ -543,8 +624,9 @@ private:
 
       if (!decoded_args)
         goto fail_arg_check;
-
-      DEBUG_STATUS("Reading server reasponse (READRESP)... ");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "Reading server reasponse (READRESP)... ");
+#endif
 
       unsigned long timeout = atol((const char *)decoded_args);
 
@@ -556,7 +638,9 @@ private:
 
       // Unknown command
       sendFramedResponse(ctx, "FALSE", "CMD");
-      DEBUG_STATUS("❌ Unknown command (CMD)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "❌ Unknown command (CMD)\r\n");
+#endif
     }
 
   // Standard cleanup and error handling blocks:
@@ -567,7 +651,9 @@ private:
 
   fail_arg_check:
     sendFramedResponse(ctx, "FALSE", "CMD");
-    DEBUG_STATUS("❌ Arg/CRC mismatch (CMD)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+    DEBUG_STATUS(debugLevel > 1, "❌ Arg/CRC mismatch (CMD)\r\n");
+#endif
     if (decoded_args)
       free(decoded_args);
     // Also purge on failed commands
@@ -644,7 +730,9 @@ private:
     if (is_busy)
     {
       sendFramedResponse(nullptr, "FALSE", "RECONNECTNET");
-      DEBUG_STATUS("❌ Host is busy (RECONNECTNET)\r\n");
+#if defined(ENABLE_DEBUG_OUTPUT)
+      DEBUG_STATUS(debugLevel > 1, "❌ Host is busy (RECONNECTNET)\r\n");
+#endif
       return;
     }
 
