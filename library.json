@@ -1,0 +1,21 @@
+{
+  "name": "SerialTCPClient",
+  "version": "0.0.1",
+  "description": "Bridge TCP client communication over serial for Arduino boards.",
+  "keywords": ["TCP", "serial", "bridge", "WiFi", "ESP32", "ESP8266", "client"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mobizt/SerialTCPClient"
+  },
+  "authors": [
+    {
+      "name": "mobizt",
+      "email": "suwatchai@outlook.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "*",
+  "headers": "SerialTCPClient.h"
+}
