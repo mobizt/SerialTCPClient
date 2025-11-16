@@ -1,3 +1,3 @@
-## The Arduino Serial TCP Bridge
+## The Arduino Serial TCP Client
 
-Add the SSL client support for the Arduino boards using the ESP8266 bridge.   
+Add the SSL client support for the Arduino boards using the WiFi capable device.   
