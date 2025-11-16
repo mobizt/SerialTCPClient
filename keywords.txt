@@ -1,0 +1,47 @@
+#######################################
+# SerialTCPClient
+#######################################
+
+# Class
+SerialTCPClient	KEYWORD1
+
+# Public Methods
+begin	KEYWORD2
+setSlot	KEYWORD2
+setWiFi	KEYWORD2
+connectNetwork	KEYWORD2
+disconnectNetwork	KEYWORD2
+isNetworkConnected	KEYWORD2
+setAutoReconnect	KEYWORD2
+setRetryLimit	KEYWORD2
+setRetryDelay	KEYWORD2
+setDebugLevel	KEYWORD2
+connect	KEYWORD2
+startTLS	KEYWORD2
+write	KEYWORD2
+readResponse	KEYWORD2
+read	KEYWORD2
+available	KEYWORD2
+stop	KEYWORD2
+connected	KEYWORD2
+flush	KEYWORD2
+peek	KEYWORD2
+availableForWrite	KEYWORD2
+
+#######################################
+# SerialTCPHost
+#######################################
+
+# Class
+SerialTCPHost	KEYWORD1
+
+# Public Types/Structs
+serial_tcp_client_context	KEYWORD1
+StartTLSCallback	KEYWORD1
+
+# Public Methods
+setClient	KEYWORD2
+loop    KEYWORD2
+
+# Public Constants
+MAX_TCP_CLIENTS	LITERAL1
