@@ -1,776 +1,650 @@
+#pragma once
 
-#ifndef SERIAL_TCP_HOST_H
-#define SERIAL_TCP_HOST_H
+#include <Stream.h>
+#include <Client.h>
+#include "SerialTCPProtocol.h"
 
-#ifndef MAX_TCP_CLIENTS
-#define MAX_TCP_CLIENTS 2
+using namespace SerialTCPProtocol;
+
+// Detect WiFi capability across Arduino boards
+#if defined(ESP32) || defined(ESP8266)
+#define HOST_HAS_WIFI
+#elif defined(WiFiS3_h)
+#define HOST_HAS_WIFI
+#elif defined(WiFiNINA_h)
+#define HOST_HAS_WIFI
+#elif defined(WiFi101_h)
+#define HOST_HAS_WIFI
+#elif defined(PICO_CYW43_ARCH_HAS_WIFI)
+#define HOST_HAS_WIFI
 #endif
-#define MAX_SPLIT_TOKENS 10
-#define MAX_SPLIT_TOKEN_LEN 50
-#define MAX_CMD_BUF 512
-#define MAX_KEYWORD_LEN 16
-#define DATA_CHUNK_SIZE 128 // Limit raw data sent per frame
 
-#include <Arduino.h>
-#include "SerialTCPHelper.h"
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-namespace SerialTCPHost_NS
+struct QueueNode
 {
-  typedef void (*StartTLSCallback)(bool &success);
+    uint8_t data;
+    QueueNode *next;
+};
 
-  struct serial_tcp_client_context
-  {
-    Client *client = nullptr;
-    StartTLSCallback tlsCb = NULL;
-    char host[64];
-    uint16_t port = 0;
-    bool tlsStarted = false;
-    bool sslMode = false;
-    bool server_status = false;
-    unsigned long ms = 0;
-  };
-}
+class DynamicQueue
+{
+private:
+    QueueNode *head = nullptr;
+    QueueNode *tail = nullptr;
+    size_t _count = 0;
+    size_t _limit = SERIAL_TCP_HOST_TX_BUFFER_SIZE;
 
-using namespace SerialTCPHost_NS;
-using namespace SerialTCPHelper_NS;
+public:
+    ~DynamicQueue()
+    {
+        clear();
+    }
+    size_t available() { return _count; }
+    size_t space()
+    {
+        if (_count >= _limit)
+            return 0;
+        return _limit - _count;
+    }
+
+    bool enqueue(uint8_t b)
+    {
+        if (space() == 0)
+            return false;
+        QueueNode *newNode = new QueueNode;
+        if (!newNode)
+            return false;
+        newNode->data = b;
+        newNode->next = nullptr;
+        if (tail)
+            tail->next = newNode;
+        else
+            head = newNode;
+        tail = newNode;
+        _count++;
+        return true;
+    }
+
+    int dequeue()
+    {
+        if (!head)
+            return -1;
+        QueueNode *temp = head;
+        int data = temp->data;
+        head = head->next;
+        if (!head)
+            tail = nullptr;
+        delete temp;
+        _count--;
+        return data;
+    }
+    void clear()
+    {
+        while (dequeue() != -1)
+        {
+        }
+        _count = 0;
+        head = tail = nullptr;
+    }
+};
+
+typedef bool (*StartTLSCallback)(int slot);
+typedef bool (*SetWiFiCallback)(const char *ssid, const char *pass);
+typedef bool (*ConnectNetworkCallback)();
+typedef void (*RebootCallback)();
+typedef void (*PreConnectCallback)(int slot, const char *ca_cert_filename);
 
 class SerialTCPHost
 {
-public:
-  /**
-   * @brief Constructor for SerialTCPHost.
-   * @param sink The Stream interface (e.g., Serial, Serial1) used for
-   * communicating with the device running SerialTCPClient.
-   */
-  SerialTCPHost(Stream &sink)
-      : sink(sink)
-  {
-    for (size_t i = 0; i < MAX_TCP_CLIENTS; i++)
-    {
-      clients[i].client = nullptr;
-      clients[i].tlsCb = NULL;
-    }
-  }
-
-  /**
-   * @brief Binds a specific Client instance (e.g., WiFiClient) to a numbered slot.
-   * @param client Pointer to the Client object (e.g., WiFiClient, EthernetClient).
-   * @param slot The slot ID (0 to MAX_TCP_CLIENTS-1) to assign this client to.
-   * @param tlsCb (Optional) A callback function to be invoked when a STARTTLS
-   * command is received for this specific slot.
-   */
-  void setClient(Client *client, int slot, StartTLSCallback tlsCb = NULL)
-  {
-    if (slot < MAX_TCP_CLIENTS && slot > -1)
-    {
-      clients[slot].client = client;
-      clients[slot].tlsCb = tlsCb;
-    }
-  }
-
-  /**
-   * @brief Main processing loop.
-   * This function must be called repeatedly in the main Arduino loop()
-   * to process incoming serial commands and manage network connections.
-   */
-  void loop()
-  {
-    handleSerialCommands();
-    checkWiFiConnection();
-  }
-
 private:
-  Stream &sink;
-  char ssid[32];
-  char pass[32];
-  serial_tcp_client_context clients[MAX_TCP_CLIENTS];
+    Stream *sink = nullptr;
+    Client *_clients[MAX_TCP_CLIENTS] = {nullptr};
+    bool _client_connected_state[MAX_TCP_CLIENTS] = {false};
+    PacketReceiver _receiver;
+    uint8_t _decoded_buffer[MAX_PACKET_BUFFER_SIZE];
 
-  size_t cmdLen = 0;
-  bool autoReconnect = true;
-  int retryLimit = 5;
-  unsigned long retryDelay = 5000;
-  int debugLevel = 0;
-  int total_read = 0;       // State variable for tracking total bytes read
-  bool reading_cmd = false; // Member variable for command state
-  bool is_busy = false;
-  StartTLSCallback tlsCB = NULL;
+    uint8_t _debug_level = 1;
 
-  serial_bridge_status_context status;
+    uint16_t _session_id = 0;
 
-  char cmdBuf[MAX_CMD_BUF];
-  char status_resp[70];
+    StartTLSCallback _tls_callbacks[MAX_TCP_CLIENTS] = {nullptr};
+    SetWiFiCallback _set_wifi_callback = nullptr;
+    ConnectNetworkCallback _connect_net_callback = nullptr;
+    RebootCallback _reboot_callback = nullptr;
+    PreConnectCallback _pre_connect_callback = nullptr;
 
-  unsigned long lastWiFiCheck = 0;
-  int wifiRetryCount = 0;
-
-  bool processResponse(serial_tcp_client_context *ctx, unsigned long timeout = 1000)
-  {
-    SerialTCPHelper::yield();
-    // We trust the available in case data has been read.
-    if (total_read > 0 && ctx->client->available() == 0)
+    String _ca_cert_filenames[MAX_TCP_CLIENTS];
+    DynamicQueue _tx_queues[MAX_TCP_CLIENTS];
+    enum class TxState
     {
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP END_DATA)\r\n");
-#endif
-      sendFramedResponse(ctx, "END_DATA", "READRESP");
-      return false;
-    }
-
-    // Wait for data with timeout
-    unsigned long ms = millis();
-    while (millis() - ms < timeout && ctx->client->available() == 0)
-    {
-      SerialTCPHelper::yield();
-    }
-
-    if (ctx->client->available() == 0)
-    {
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "❌ No data available (READRESP)\r\n");
-#endif
-      sendFramedResponse(ctx, "FALSE", "READRESP");
-      return false;
-    }
-
-    uint8_t buf[DATA_CHUNK_SIZE];
-    size_t idx = 0;
-    int _c = 0;
-    ms = millis();
-    while (millis() - ms < timeout)
-    {
-
-      SerialTCPHelper::yield();
-      int c = ctx->client->read(); // Read byte-by-byte from TCP stream
-
-      if (c != -1)
-      {
-        // Check for buffer overflow on line buffer
-        if (idx >= DATA_CHUNK_SIZE - 1)
-        {
-          buf[idx] = 0;
-          sendFramedResponse(ctx, "TRUE", "READRESP", buf, idx);
-          total_read += idx;
-          idx = 0;
-#if defined(ENABLE_DEBUG_OUTPUT)
-          DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
-#endif
-          return true;
-        }
-
-        buf[idx++] = (uint8_t)c;
-        ms = millis();
-
-        // Check for end of line (CRLF or LF)
-        if ((_c == '\r' && c == '\n') || c == '\n')
-        {
-          buf[idx] = '\0';
-          sendFramedResponse(ctx, "TRUE", "READRESP", buf, idx);
-          total_read += idx;
-          idx = 0;
-#if defined(ENABLE_DEBUG_OUTPUT)
-          DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
-#endif
-          return true;
-        }
-        _c = c;
-      }
-    }
-#if defined(ENABLE_DEBUG_OUTPUT)
-    DEBUG_STATUS(debugLevel > 1, "✅ Success (READRESP)\r\n");
-#endif
-    return total_read > 0;
-  }
-
-  size_t get_keyword_end_index(const char *cmd)
-  {
-    const char *space_ptr = strchr(cmd, ' ');
-    if (space_ptr)
-    {
-      return (size_t)(space_ptr - cmd);
-    }
-    return strlen(cmd);
-  }
-
-  void handleSerialCommands()
-  {
-    bool reading_cmd = this->reading_cmd;
-
-    while (sink.available())
-    {
-      SerialTCPHelper::yield();
-      char c = sink.read();
-
-      if (!reading_cmd)
-      {
-        // Start Check: If character is printable (keyword start)
-        if (c >= 32 && c != STOP_DELIMITER)
-        {
-          reading_cmd = true;
-          cmdLen = 0;
-          // FALL THROUGH to the accumulation logic to save this first character
-        }
-        else
-        {
-          // Discard noise characters
-          continue;
-        }
-      }
-
-      //  Accumulation Logic
-      if (reading_cmd)
-      {
-        if (cmdLen < sizeof(cmdBuf) - 1)
-        {
-          cmdBuf[cmdLen++] = c;
-        }
-        else
-        {
-          cmdLen = 0;
-          reading_cmd = false;
-          continue;
-        }
-
-        if (c == STOP_DELIMITER)
-        {
-          cmdBuf[cmdLen] = 0;
-          cmdLen = 0;
-          reading_cmd = false;
-          processCommand(cmdBuf);
-        }
-      }
-    }
-    this->reading_cmd = reading_cmd; // Update member variable state
-  }
-
-  void processCommand(const char *cmd)
-  {
-
-    SerialTCPHelper::yield();
-
-    int slot = cmd[0] >= '0' && cmd[0] <= '9' ? cmd[0] - '0' : -1;
-    serial_tcp_client_context *ctx = slot > -1 ? &clients[slot] : nullptr;
-    if (slot > -1)
-      cmd += 2;
-
-    // Find command keyword length and argument frame pointer
-    size_t cmd_keyword_len = get_keyword_end_index(cmd);
-    const char *space_ptr = cmd + cmd_keyword_len;
-    const char *arg_frame = (*space_ptr == ' ') ? space_ptr + 1 : NULL;
-
-    // Decode and Validate argument frame (if present)
-    uint8_t *decoded_args = NULL;
-    size_t decoded_arg_len = 0;
-
-    if (arg_frame && *arg_frame == START_DELIMITER)
-    {
-      decoded_args = SerialTCPHelper::deconstruct_and_validate_frame_only(arg_frame, &decoded_arg_len);
-    }
-
-    // Temporary buffer for keyword matching
-    char keyword_buf[MAX_KEYWORD_LEN];
-    strncpy(keyword_buf, cmd, cmd_keyword_len);
-    keyword_buf[cmd_keyword_len] = '\0';
-
-    // Argument validation check utility
-    auto validate_args = [&](bool requires_args) __attribute__((always_inline)) -> bool
-    {
-      bool frame_was_empty = (decoded_args && decoded_arg_len == 0);
-
-      if (requires_args && (!decoded_args || frame_was_empty))
-        return false;
-
-      if (!requires_args && (!decoded_args || !frame_was_empty))
-        return false;
-
-      return true;
+        IDLE,
+        WAIT_FOR_ACK
     };
+    TxState _tx_states[MAX_TCP_CLIENTS] = {TxState::IDLE};
 
-    //  Command Handling Blocks (Uses strcmp for robust keyword match)
-    if (strcmp(keyword_buf, "CONNECTNET") == 0)
+    uint32_t _last_data_send_time[MAX_TCP_CLIENTS] = {0};
+    uint8_t _last_data_packet[MAX_TCP_CLIENTS][MAX_PACKET_BUFFER_SIZE];
+    size_t _last_data_packet_len[MAX_TCP_CLIENTS] = {0};
+
+    void processCommand(const uint8_t *pkt, size_t len)
     {
+        uint8_t cmd = pkt[0];
+        uint8_t slot = pkt[1];
+        const uint8_t *payload = &pkt[2];
+        size_t payload_len = len - 4;
 
-      if (!validate_args(false))
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Connecting to network (CONNECTNET)... ");
-#endif
-
-      if (is_busy)
-      {
-        sendFramedResponse(nullptr, "FALSE", "CONNECTNET");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "❌ Host is busy (CONNECTNET)\r\n");
-#endif
-        return;
-      }
-
-      if (WiFi.status() != WL_CONNECTED)
-      {
-
-        WiFi.begin(ssid, pass);
-        wifiRetryCount = 0;
-        unsigned long start = millis();
-        is_busy = true;
-        while (WiFi.status() != WL_CONNECTED && millis() - start < 10000)
+        if (slot == GLOBAL_SLOT_ID)
         {
-          SerialTCPHelper::yield();
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "Got Global Command: " + String(cmd, HEX));
+#endif
+            bool global_success = false;
+            switch (cmd)
+            {
+            case CMD_C_SET_DEBUG:
+                if (payload_len > 0)
+                {
+                    _debug_level = (uint8_t)payload[0];
+                    global_success = true;
+                }
+                break;
+            case CMD_C_PING_HOST:
+                sendPacket(*sink, CMD_H_PING_RESPONSE, GLOBAL_SLOT_ID, nullptr, 0);
+                return;
+            case CMD_C_REBOOT_HOST:
+                global_success = true; // ACK first
+                sendPacket(*sink, CMD_H_ACK, GLOBAL_SLOT_ID, nullptr, 0);
+                if (_reboot_callback)
+                {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                    DEBUG_PRINT(_debug_level, "[Host]", "Invoking reboot callback...");
+#endif
+                    delay(100);
+                    _reboot_callback();
+                }
+                return;
+            case CMD_C_SET_WIFI:
+                if (_set_wifi_callback && payload_len > 2)
+                {
+                    uint8_t ssid_len = payload[0];
+                    if (ssid_len > 0 && payload_len > ssid_len + 1)
+                    {
+                        const char *ssid = (const char *)&payload[1];
+                        uint8_t pass_len = payload[1 + ssid_len];
+                        if (payload_len >= 2 + ssid_len + pass_len)
+                        {
+                            const char *pass = (const char *)&payload[2 + ssid_len];
+                            char ssid_buf[ssid_len + 1];
+                            memcpy(ssid_buf, ssid, ssid_len);
+                            ssid_buf[ssid_len] = '\0';
+                            char pass_buf[pass_len + 1];
+                            memcpy(pass_buf, pass, pass_len);
+                            pass_buf[pass_len] = '\0';
+                            global_success = _set_wifi_callback(ssid_buf, pass_buf);
+                        }
+                    }
+                }
+                break;
+            case CMD_C_CONNECT_NET:
+                if (_connect_net_callback)
+                    global_success = _connect_net_callback();
+                break;
+            case CMD_C_IS_NET_CONNECTED:
+#if defined(HOST_HAS_WIFI)
+                global_success = (WiFi.status() == WL_CONNECTED);
+#else
+                global_success = false;
+#endif
+                break;
+            case CMD_C_DISCONNECT_NET:
+#if defined(HOST_HAS_WIFI)
+                WiFi.disconnect();
+                global_success = true;
+#else
+                global_success = false;
+#endif
+                break;
+            }
+            sendPacket(*sink, global_success ? CMD_H_ACK : CMD_H_NAK, GLOBAL_SLOT_ID, nullptr, 0);
+            return;
         }
-        is_busy = false;
-      }
 
-      status.net_status = WiFi.status() == WL_CONNECTED;
-      sendFramedResponse(nullptr, status.net_status ? "TRUE" : "FALSE", "CONNECTNET");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, status.net_status ? "✅ Connected (CONNECTNET)\r\n" : "❌ Disconnected (CONNECTNET)\r\n");
-#endif
-    }
-    else if (strcmp(keyword_buf, "DISCONNECTNET") == 0)
-    {
-
-      if (!validate_args(false))
-        goto fail_arg_check;
-
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Disconnecting WiFi (DISCONNECTNET)... ");
-#endif
-
-      WiFi.disconnect();
-      status.net_status = false;
-      sendFramedResponse(nullptr, "TRUE", "DISCONNECTNET");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (DISCONNECTNET)\r\n");
-#endif
-    }
-    else if (strcmp(keyword_buf, "NETSTATUS") == 0)
-    {
-
-      if (!validate_args(false))
-        goto fail_arg_check;
-
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "Getting net status (NETSTATUS)... ");
-#endif
-
-      sendFramedResponse(nullptr, WiFi.status() == WL_CONNECTED ? "TRUE" : "FALSE", "NETSTATUS");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, WiFi.status() == WL_CONNECTED ? "✅ Connected (NETSTATUS)\r\n" : "❌ Disconnected (NETSTATUS)\r\n");
-#endif
-    }
-    else if (ctx && strcmp(keyword_buf, "STOP") == 0)
-    {
-
-      if (!validate_args(false))
-        goto fail_arg_check;
-
-      ctx->tlsStarted = false;
-
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Stopping connection (STOP)... ");
-#endif
-
-      if (ctx->client->connected())
-        ctx->client->stop();
-      sendFramedResponse(ctx, "TRUE", "STOP");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (STOP)\r\n");
-#endif
-    }
-    else if (ctx && strcmp(keyword_buf, "SERVERSTATUS") == 0)
-    {
-
-      if (!validate_args(false))
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "Checking server status (SERVERSTATUS)... ");
-#endif
-
-      sendFramedResponse(ctx, ctx->client->connected() ? "TRUE" : "FALSE", "SERVERSTATUS");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, ctx->client->connected() ? "✅ Connected (SERVERSTATUS)\r\n" : "❌ Disconnected (SERVERSTATUS)\r\n");
-#endif
-    }
-    else if (ctx && strcmp(keyword_buf, "STARTTLS") == 0)
-    {
-
-      if (!validate_args(false))
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Starting TLS (STARTTLS)... ");
-#endif
-
-      bool tlsReady = false;
-
-      if (!ctx->sslMode && ctx->tlsCb)
-        ctx->tlsCb(tlsReady);
-
-      if (!ctx->sslMode && tlsReady)
-      {
-        ctx->tlsStarted = true;
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "✅ Success (STARTTLS)\r\n");
-#endif
-        sendFramedResponse(ctx, "TRUE", "STARTTLS");
-      }
-      else
-      {
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "❌ Error (STARTTLS)\r\n");
-#endif
-        sendFramedResponse(ctx, "FALSE", "STARTTLS");
-      }
-    }
-    // Command: SETWIFI
-    else if (strcmp(keyword_buf, "SETWIFI") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Setting WiFi (SETWIFI)... ");
-#endif
-
-      const char *creds = (const char *)decoded_args;
-      const char *sep = strchr(creds, ' ');
-      if (sep)
-      {
-
-        size_t ssidLen = sep - creds;
-        strncpy(ssid, creds, ssidLen < sizeof(ssid) ? ssidLen : sizeof(ssid) - 1);
-        ssid[ssidLen < sizeof(ssid) ? ssidLen : sizeof(ssid) - 1] = '\0';
-        strncpy(pass, sep + 1, sizeof(pass) - 1);
-        pass[sizeof(pass) - 1] = '\0';
-        sendFramedResponse(nullptr, "TRUE", "SETWIFI");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "✅ Success (SETWIFI)\r\n");
-#endif
-      }
-      else
-      {
-        sendFramedResponse(nullptr, "FALSE", "SETWIFI");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "❌ Error (SETWIFI)\r\n");
-#endif
-      }
-    }
-    // Command: AUTO_RECONNECT
-    else if (strcmp(keyword_buf, "AUTO_RECONNECT") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Setting auto reconnect (AUTO_RECONNECT)... ");
-#endif
-
-      if (strcmp((const char *)decoded_args, "OFF") == 0)
-        autoReconnect = false;
-      else
-
-        autoReconnect = strcmp((const char *)decoded_args, "ON") == 0;
-      sendFramedResponse(nullptr, "TRUE", "AUTO_RECONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (AUTO_RECONNECT)\r\n");
-#endif
-    }
-    // Command: RETRYLIMIT
-    else if (strcmp(keyword_buf, "RETRYLIMIT") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Setting retry limit (RETRYLIMIT)... ");
-#endif
-
-      retryLimit = atoi((const char *)decoded_args);
-      sendFramedResponse(nullptr, "TRUE", "RETRYLIMIT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (RETRYLIMIT)\r\n");
-#endif
-    }
-    // Command: RETRYDELAY
-    else if (strcmp(keyword_buf, "RETRYDELAY") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Setting retry delay (RETRYDELAY)... ");
-#endif
-
-      retryDelay = atol((const char *)decoded_args);
-      sendFramedResponse(nullptr, "TRUE", "RETRYDELAY");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (RETRYDELAY)\r\n");
-#endif
-    }
-    // Command: DEBUGLEVEL
-    else if (strcmp(keyword_buf, "DEBUGLEVEL") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-
-      debugLevel = atoi((const char *)decoded_args);
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Setting debug level (DEBUGLEVEL)... ");
-#endif
-
-      sendFramedResponse(nullptr, "TRUE", "DEBUGLEVEL");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "✅ Success (DEBUGLEVEL)\r\n");
-#endif
-    }
-    // Command: CONNECT
-    else if (ctx && strcmp(keyword_buf, "CONNECT") == 0)
-    {
-
-      if (!decoded_args)
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 0, "Connecting to server (CONNECT)... ");
-#endif
-
-      if (is_busy)
-      {
-        sendFramedResponse(ctx, "FALSE", "CONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "❌ Host is busy (CONNECT)");
-#endif
-        return;
-      }
-
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        is_busy = true;
-        char tokens[MAX_SPLIT_TOKENS][MAX_SPLIT_TOKEN_LEN];
-        int token_count = SerialTCPHelper::extract_and_store_tokens((const char *)decoded_args, tokens);
-
-        if (token_count >= 2)
+        if (slot >= MAX_TCP_CLIENTS)
         {
-          strncpy(ctx->host, tokens[0], sizeof(ctx->host) - 1);
-          ctx->host[sizeof(ctx->host) - 1] = '\0';
-          ctx->port = atoi(tokens[1]);
-          ctx->sslMode = (token_count == 3 && strcmp(tokens[token_count - 1], "SSL") == 0);
-
-          ctx->client->stop();
-          if (ctx->client->connect(ctx->host, ctx->port))
-          {
-            ctx->tlsStarted = ctx->sslMode;
-            sendFramedResponse(ctx, "TRUE", "CONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-            DEBUG_STATUS(debugLevel > 0, "✅ Success (CONNECT)\r\n");
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: Invalid slot " + String(slot));
 #endif
-          }
-          else
-          {
-            sendFramedResponse(ctx, "FALSE", "CONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-            DEBUG_STATUS(debugLevel > 0, "❌ Unable to connect to server (CONNECT)\r\n");
-#endif
-          }
+            sendPacket(*sink, CMD_H_NAK, slot, nullptr, 0);
+            return;
         }
-        else
+
+        Client *client = _clients[slot];
+        if (!client && cmd != CMD_C_DATA_ACK && cmd != CMD_C_START_TLS)
         {
-          sendFramedResponse(ctx, "FALSE", "CONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-          DEBUG_STATUS(debugLevel > 0, "❌ Error (CONNECT)\r\n");
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: No client in slot " + String(slot));
 #endif
+            sendPacket(*sink, CMD_H_NAK, slot, nullptr, 0);
+            return;
         }
-        is_busy = false;
-      }
-      else
-      {
-        sendFramedResponse(ctx, "FALSE", "CONNECT");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 0, "❌ Network is not connected (CONNECT)\r\n");
+
+#if defined(ENABLE_SERIALTCP_DEBUG)
+        DEBUG_PRINT(_debug_level, "[Host]", "Got Command: " + String(cmd, HEX) + " for slot " + String(slot));
 #endif
-      }
+
+        bool success = false;
+        switch (cmd)
+        {
+        case CMD_C_CONNECT_HOST:
+        {
+            if (payload_len < 5)
+                break;
+            uint16_t port = (uint16_t)(payload[1] << 8) | payload[2];
+            uint8_t host_len = payload[3];
+            if (host_len > payload_len - 4)
+                break;
+            char host[host_len + 1];
+            memcpy(host, &payload[4], host_len);
+            host[host_len] = '\0';
+
+            if (_pre_connect_callback && _ca_cert_filenames[slot].length() > 0)
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Invoking pre-connect callback for slot " + String(slot));
+#endif
+                _pre_connect_callback(slot, _ca_cert_filenames[slot].c_str());
+            }
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "Connecting to " + String(host) + ":" + String(port));
+#endif
+            if (client->connect(host, port))
+            {
+                success = true;
+                _client_connected_state[slot] = true;
+                _tx_queues[slot].clear();
+                _tx_states[slot] = TxState::IDLE;
+            }
+            _ca_cert_filenames[slot] = "";
+            break;
+        }
+        case CMD_C_WRITE:
+            if (client && client->connected())
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Writing " + String(payload_len) + " bytes");
+#endif
+                if (client->write(payload, payload_len) == payload_len)
+                {
+                    client->flush();
+                    success = true;
+                }
+            }
+            break;
+        case CMD_C_STOP:
+            if (client)
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Stopping connection");
+#endif
+                client->stop();
+            }
+            _client_connected_state[slot] = false;
+            _tx_queues[slot].clear();
+            _tx_states[slot] = TxState::IDLE;
+            _ca_cert_filenames[slot] = "";
+            success = true;
+            break;
+
+        case CMD_C_POLL_DATA:
+        {
+            if (payload_len >= 2)
+            {
+                uint16_t client_sid = (uint16_t)(payload[0] << 8) | payload[1];
+                // If client sends non-zero ID and it mismatches ours, reset client
+                if (client_sid != 0 && client_sid != _session_id)
+                {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                    DEBUG_PRINT(_debug_level, "[Host]", "Session Mismatch! Host:" + String(_session_id, HEX) + " Client:" + String(client_sid, HEX));
+#endif
+                    uint8_t reset_pld[2];
+                    reset_pld[0] = (uint8_t)(_session_id >> 8);
+                    reset_pld[1] = (uint8_t)(_session_id & 0xFF);
+                    sendPacket(*sink, CMD_H_HOST_RESET, GLOBAL_SLOT_ID, reset_pld, 2);
+                    return;
+                }
+            }
+
+            bool is_connected = (client ? (uint8_t)client->connected() : 0);
+            size_t data_len = 0;
+            // In Poll mode, we can fetch data directly if needed,
+            // but sticking to the "Async Push via Queues" model
+            // means data is usually sent via processDataQueues().
+            // However, to support the request, we can reply with status.
+
+            // We reply with just status here. Data is pushed separately.
+            // (Alternatively, we could send data here if we switched to pure Pull model)
+            // For now, we just ack the poll with status.
+
+            size_t pld_len = 3;
+            uint8_t response_pld[pld_len];
+            response_pld[0] = (uint8_t)is_connected;
+            response_pld[1] = 0; // data len 0
+            response_pld[2] = 0;
+
+            sendPacket(*sink, CMD_H_POLL_RESPONSE, slot, response_pld, pld_len);
+            return;
+        }
+
+        case CMD_C_IS_CONNECTED:
+        {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "Client is polling for status");
+#endif
+            uint8_t status = (client ? (uint8_t)client->connected() : 0);
+            _client_connected_state[slot] = status;
+            sendPacket(*sink, CMD_H_CONNECTED_STATUS, slot, &status, 1);
+            return;
+        }
+
+        case CMD_C_DATA_ACK:
+            if (_tx_states[slot] == TxState::WAIT_FOR_ACK)
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Got Data ACK for slot " + String(slot));
+#endif
+                _tx_states[slot] = TxState::IDLE;
+            }
+            return;
+
+        case CMD_C_START_TLS:
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "Got STARTTLS request for slot " + String(slot));
+#endif
+            if (_tls_callbacks[slot] != nullptr)
+            {
+                success = _tls_callbacks[slot](slot);
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "STARTTLS callback returned: " + String(success));
+#endif
+            }
+            else
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "ERROR: No STARTTLS callback registered for slot " + String(slot));
+#endif
+                success = false;
+            }
+            break;
+
+        case CMD_C_SET_CA_CERT:
+        {
+            if (payload_len > 0)
+            {
+                char filename[payload_len + 1];
+                memcpy(filename, payload, payload_len);
+                filename[payload_len] = '\0';
+                _ca_cert_filenames[slot] = String(filename);
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Set sticky CA cert for slot " + String(slot) + ": " + _ca_cert_filenames[slot]);
+#endif
+                success = true;
+            }
+            break;
+        }
+
+        default:
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: Unknown command " + String(cmd, HEX));
+#endif
+            break;
+        }
+#if defined(ENABLE_SERIALTCP_DEBUG)
+        DEBUG_PRINT(_debug_level, "[Host]", success ? "Sending ACK" : "Sending NAK");
+#endif
+        sendPacket(*sink, success ? CMD_H_ACK : CMD_H_NAK, slot, nullptr, 0);
     }
-    // Command: WRITE
-    else if (ctx && strcmp(keyword_buf, "WRITE") == 0)
+
+    void processSerial()
     {
-
-      total_read = 0; // Reset total read counter for new transaction
-      if (!decoded_args)
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "Writing server request (WRITE)... ");
+        while (sink->available())
+        {
+            uint8_t b = sink->read();
+            size_t cobsLen = _receiver.read_byte(b);
+            if (cobsLen > 0)
+            {
+                size_t decodedLen = cobs_decode(_receiver.buffer, cobsLen, _decoded_buffer);
+                if (decodedLen > 2)
+                {
+                    uint16_t rcvd_crc = (uint16_t)(_decoded_buffer[decodedLen - 1] << 8) | _decoded_buffer[decodedLen - 2];
+                    uint16_t calc_crc = calculate_crc16(_decoded_buffer, decodedLen - 2);
+                    if (rcvd_crc == calc_crc)
+                    {
+                        processCommand(_decoded_buffer, decodedLen);
+                    }
+                    else
+                    {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                        DEBUG_PRINT(_debug_level, "[Host]", "ERROR: Bad CRC!");
 #endif
-
-      if (!ctx->client->connected())
-      {
-        sendFramedResponse(ctx, "FALSE", "WRITE");
-#if defined(ENABLE_DEBUG_OUTPUT)
-        DEBUG_STATUS(debugLevel > 1, "❌ Error (WRITE)\r\n");
-#endif
-        goto cleanup;
-      }
-
-      int sent = ctx->client->write(decoded_args, decoded_arg_len);
-      sendFramedResponse(ctx, sent == (int)decoded_arg_len ? "TRUE" : "FALSE", "WRITE");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, sent == (int)decoded_arg_len ? "✅ Success (WRITE)\r\n" : "❌ Error (WRITE)\r\n");
-#endif
+                    }
+                }
+            }
+        }
     }
-    // Command: READRESP
-    else if (ctx && strcmp(keyword_buf, "READRESP") == 0)
+
+    void queueNetworkData()
     {
+        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        {
+            if (_clients[i])
+            {
+                while (_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
+                {
+                    _tx_queues[i].enqueue(_clients[i]->read());
+                }
 
-      if (!decoded_args)
-        goto fail_arg_check;
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "Reading server reasponse (READRESP)... ");
+                bool is_connected = _clients[i]->connected();
+
+                if (is_connected != _client_connected_state[i])
+                {
+                    if (is_connected)
+                    {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                        DEBUG_PRINT(_debug_level, "[Host]", "Pushing connect status (" + String(is_connected) + ") to slot " + String(i));
+#endif
+                        _client_connected_state[i] = is_connected;
+                        uint8_t status = (uint8_t)is_connected;
+                        sendPacket(*sink, CMD_H_CONNECTED_STATUS, i, &status, 1);
+                    }
+                    else
+                    {
+                        while (_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
+                        {
+                            _tx_queues[i].enqueue(_clients[i]->read());
+                        }
+
+                        if (_tx_queues[i].available() == 0 && _tx_states[i] == TxState::IDLE)
+                        {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                            DEBUG_PRINT(_debug_level, "[Host]", "Queue empty. Pushing disconnect status to slot " + String(i));
+#endif
+                            _client_connected_state[i] = is_connected;
+                            _ca_cert_filenames[i] = "";
+                            uint8_t status = (uint8_t)is_connected;
+                            sendPacket(*sink, CMD_H_CONNECTED_STATUS, i, &status, 1);
+                        }
+                        else
+                        {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                            DEBUG_PRINT(_debug_level, "[Host]", "Queue has " + String(_tx_queues[i].available()) + " bytes. Delaying disconnect message.");
+#endif
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void processDataQueues()
+    {
+        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        {
+            if (!_clients[i])
+                continue;
+
+            if (_tx_states[i] == TxState::WAIT_FOR_ACK)
+            {
+                if (millis() - _last_data_send_time[i] > SERIAL_TCP_DATA_PACKET_TIMEOUT)
+                {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                    DEBUG_PRINT(_debug_level, "[Host]", "Timeout, resending data packet to slot " + String(i));
 #endif
 
-      unsigned long timeout = atol((const char *)decoded_args);
+                    size_t rawLen = 2 + _last_data_packet_len[i];
+                    uint16_t crc = calculate_crc16(_last_data_packet[i], rawLen);
+                    _last_data_packet[i][rawLen] = (uint8_t)(crc & 0xFF);
+                    _last_data_packet[i][rawLen + 1] = (uint8_t)(crc >> 8);
+                    rawLen += 2;
 
-      // processResponse now streams the response data
-      processResponse(ctx, timeout);
-    }
-    else
-    {
+                    uint8_t cobsPkt[MAX_PACKET_BUFFER_SIZE + 2];
+                    size_t cobsLen = cobs_encode(_last_data_packet[i], rawLen, cobsPkt);
 
-      // Unknown command
-      sendFramedResponse(ctx, "FALSE", "CMD");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "❌ Unknown command (CMD)\r\n");
+                    sink->write(cobsPkt, cobsLen);
+                    sink->write(FRAME_DELIMITER);
+
+                    _last_data_send_time[i] = millis();
+                }
+                continue;
+            }
+
+            if (_tx_states[i] == TxState::IDLE && _tx_queues[i].available() > 0)
+            {
+                size_t len_to_send = min(_tx_queues[i].available(), (size_t)SERIAL_TCP_DATA_PAYLOAD_SIZE);
+
+                _last_data_packet_len[i] = len_to_send;
+                _last_data_packet[i][0] = CMD_H_DATA_PAYLOAD;
+                _last_data_packet[i][1] = i;
+
+                for (size_t j = 0; j < len_to_send; j++)
+                {
+                    int data = _tx_queues[i].dequeue();
+                    if (data == -1)
+                    {
+                        len_to_send = j;
+                        break;
+                    }
+                    _last_data_packet[i][j + 2] = (uint8_t)data;
+                }
+
+                _last_data_packet_len[i] = len_to_send;
+                if (len_to_send == 0)
+                    continue;
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "Sending " + String(len_to_send) + " bytes to slot " + String(i));
 #endif
+                sendPacket(*sink, CMD_H_DATA_PAYLOAD, i, &_last_data_packet[i][2], len_to_send);
+
+                _tx_states[i] = TxState::WAIT_FOR_ACK;
+                _last_data_send_time[i] = millis();
+            }
+        }
     }
 
-  // Standard cleanup and error handling blocks:
-  cleanup:
-    if (decoded_args)
-      free(decoded_args);
-    return;
+public:
+    /**
+     * @brief Constructor for SerialTCPHost.
+     * @param sink The Stream interface (e.g., Serial, Serial1) used for
+     * communicating with the device running SerialTCPClient.
+     */
+    SerialTCPHost(Stream &sink) : sink(&sink)
+    {
+        _session_id = (uint16_t)micros();
+        if (_session_id == 0)
+            _session_id = 1;
+    }
 
-  fail_arg_check:
-    sendFramedResponse(ctx, "FALSE", "CMD");
-#if defined(ENABLE_DEBUG_OUTPUT)
-    DEBUG_STATUS(debugLevel > 1, "❌ Arg/CRC mismatch (CMD)\r\n");
+    /**
+     * @brief Broadcasts a HOST_RESET command to all clients.
+     * This function should be called in the Host's setup() function
+     * after Serial initialization. It sends a packet containing the
+     * Host's current Session ID. Any connected clients receiving this
+     * will know the host has rebooted and will reset their connection state.
+     */
+    void notifyBoot()
+    {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+        DEBUG_PRINT(_debug_level, "[Host]", "Broadcasting HOST_RESET. Session: " + String(_session_id, HEX));
 #endif
-    if (decoded_args)
-      free(decoded_args);
-    // Also purge on failed commands
-  }
-
-  void getStatusResponse(serial_tcp_client_context *ctx, const char *result, const char *caller)
-  {
-    status.net_status = WiFi.status() == WL_CONNECTED;
-    bool server_status = false;
-    if (ctx)
-    {
-      ctx->server_status = ctx->client->connected();
-      server_status = ctx->server_status;
-    }
-    snprintf(status_resp, sizeof(status_resp), "%s %s %d %d %s %s", result, caller, status.net_status, server_status, ssid, pass);
-  }
-
-  size_t sendFramedResponse(serial_tcp_client_context *ctx, const char *result, const char *caller, const uint8_t *buf = nullptr, size_t size = 0)
-  {
-    getStatusResponse(ctx, result, caller);
-    char num_buf[32];
-    int resp_len = strlen(status_resp); // status response length
-    snprintf(num_buf, 32, "%d", resp_len);
-    int num_len = strlen(num_buf);
-    size_t sz = size + resp_len + num_len + 3;
-
-    uint8_t *rawBuf = (uint8_t *)malloc(sz + 1);
-    if (!rawBuf)
-      return 0;
-
-    int index = 0;
-    memcpy(rawBuf, num_buf, num_len);
-    index += num_len;
-    memcpy(rawBuf + index, " ", 1);
-    index++;
-    memcpy(rawBuf + index, status_resp, resp_len);
-    index += resp_len;
-    memcpy(rawBuf + index, " ", 1);
-    index++;
-    if (buf && size > 0)
-      memcpy(rawBuf + index, buf, size);
-    index += size;
-
-    rawBuf[index] = 0;
-
-    char tx_frame_buffer[MAX_CMD_BUF];
-    size_t frame_len = SerialTCPHelper::construct_and_encode_frame(
-        rawBuf,
-        sz,
-        tx_frame_buffer,
-        MAX_CMD_BUF);
-
-    free(rawBuf);
-    rawBuf = nullptr;
-
-    if (frame_len == 0)
-      return 0;
-
-    size_t written = sink.write((const uint8_t *)tx_frame_buffer, frame_len);
-    sink.flush();
-    return written;
-  }
-
-  void checkWiFiConnection()
-  {
-    if (!autoReconnect)
-      return;
-
-    unsigned long now = millis();
-    if (now - lastWiFiCheck < retryDelay)
-      return;
-    lastWiFiCheck = now;
-
-    if (is_busy)
-    {
-      sendFramedResponse(nullptr, "FALSE", "RECONNECTNET");
-#if defined(ENABLE_DEBUG_OUTPUT)
-      DEBUG_STATUS(debugLevel > 1, "❌ Host is busy (RECONNECTNET)\r\n");
-#endif
-      return;
+        uint8_t payload[2];
+        payload[0] = (uint8_t)(_session_id >> 8);
+        payload[1] = (uint8_t)(_session_id & 0xFF);
+        sendPacket(*sink, CMD_H_HOST_RESET, GLOBAL_SLOT_ID, payload, 2);
+        delay(50);
     }
 
-    if (WiFi.status() != WL_CONNECTED)
+    /**
+     * @brief Sets the Client object for a specific slot.
+     * @param client Pointer to the Client object (e.g., WiFiClient).
+     * @param slot The client slot (0 to MAX_TCP_CLIENTS-1).
+     */
+    void setClient(Client *client, int slot)
     {
-      if (ssid[0] == 0 || pass[0] == 0)
-      {
-        status.net_status = false;
-        return;
-      }
+        if (slot >= 0 && slot < MAX_TCP_CLIENTS)
+        {
+            _clients[slot] = client;
+            _client_connected_state[slot] = false;
+        }
+    }
 
-      is_busy = true;
-      if (wifiRetryCount < retryLimit)
-      {
-        WiFi.begin(ssid, pass);
-        wifiRetryCount++;
-        if (debugLevel >= 1)
-          sendFramedResponse(nullptr, "FALSE", "RECONNECTNET");
-      }
-      else
-      {
-        status.net_status = false;
-        if (debugLevel >= 1)
-          sendFramedResponse(nullptr, "FALSE", "RECONNECTNET");
-      }
-      is_busy = false;
-    }
-    else
+    /**
+     * @brief Sets the StartTLS callback for a specific slot.
+     * @param slot The client slot (0 to MAX_TCP_CLIENTS-1).
+     * @param callback The StartTLSCallback function pointer.
+     */
+    void setStartTLSCallback(int slot, StartTLSCallback callback)
     {
-      if (!status.net_status)
-      {
-        status.net_status = true;
-        wifiRetryCount = 0;
-        if (debugLevel >= 1)
-          sendFramedResponse(nullptr, "OK", "RECONNECTNET");
-      }
+        if (slot >= 0 && slot < MAX_TCP_CLIENTS)
+        {
+            _tls_callbacks[slot] = callback;
+        }
     }
-  }
+
+    /**
+     * @brief Sets the SetWiFi callback.
+     * @param callback The SetWiFiCallback function pointer.
+     */
+    void setSetWiFiCallback(SetWiFiCallback callback) { _set_wifi_callback = callback; }
+
+    /**
+     * @brief Sets the ConnectNetwork callback.
+     * @param callback The ConnectNetworkCallback function pointer.
+     */
+    void setConnectNetworkCallback(ConnectNetworkCallback callback) { _connect_net_callback = callback; }
+
+    /**
+     * @brief Sets the Reboot callback.
+     * @param callback The RebootCallback function pointer.
+     */
+    void setRebootCallback(RebootCallback callback) { _reboot_callback = callback; }
+
+    /**
+     * @brief Sets the Pre-Connect callback.
+     * @param callback The PreConnectCallback function pointer.
+     */
+    void setPreConnectCallback(PreConnectCallback callback) { _pre_connect_callback = callback; }
+
+    /**
+     * @brief Sets the local debug level for the host.
+     * @param level The debug level (0 = none, higher = more verbose).
+     */
+    void setLocalDebugLevel(int level) { _debug_level = (uint8_t)level; }
+
+    /**
+     * @brief Main loop function to be called regularly.
+     */
+    void loop()
+    {
+        processSerial();
+        queueNetworkData();
+        processDataQueues();
+    }
 };
-
-#endif

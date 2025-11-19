@@ -38,9 +38,10 @@
 ### Client Example
 
 ```cpp
+#define ENABLE_SERIALTCP_DEBUG // For debugging
 #include <SerialTCPClient.h>
 
-SerialTCPClient client(Serial2, 0); // bind to Serial, slot 0
+SerialTCPClient client(Serial2, 0 /* slot */); // Coresponding to Network client or SSL client slot 0 on the host
 
 void setup()
 {
@@ -49,12 +50,9 @@ void setup()
   // The baud rate should be matched the host baud rate.
   Serial2.begin(115200, SERIAL_8N1, 16, 17);
 
-  client.setWiFi("WIFI_SSID", "WIFI_PASSWORD");
-  client.connectNetwork();
-  client.setAutoReconnect(true);
-  client.setDebugLevel(1); // 0=None, 1=info, 2=verbose
+  client.setLocalDebugLevel(1); // 0=None, 1=Enable
 
-  if (client.connect("example.com", 80))
+  if (client.connect("example.com", 443))
   {
     client.print("GET / HTTP/1.1\r\n");
     client.print("Host: example.com\r\n");
@@ -85,10 +83,12 @@ void loop() {}
 ```cpp
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+
+#define ENABLE_SERIALTCP_DEBUG // For debugging
 #include <SerialTCPHost.h>
 
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid     = "DEFAULT_WIFI_SSID";
+const char* password = "DEFAULT_PASSWORD";
 
 WiFiClientSecure ssl_client;
 SerialTCPHost host(Serial2);
@@ -109,10 +109,15 @@ void setup() {
   ssl_client.setInsecure();
   ssl_client.setBufferSizes(2048, 1024);
 
-  host.setClient(&ssl_client, 0 /* slot */);
+  host.setClient(&ssl_client, 0 /* slot */); // Coresponding to slot 0 on client device
+
+  // Notify the client that host is rebooted
+  // Now the server connection was closed 
+  host.notifyBoot();
 }
 
 void loop() {
+  // Reqouirements for Host operation
   host.loop();
 }
 ```
@@ -145,7 +150,7 @@ void loop() {
 See the examples folder for sketches demonstrating:
 - Connecting to a TCP server
 - Sending and receiving data
-- Using with ESP32/ESP8266 as a WiFi bridge
+- Using with ESP32/ESP8266/Raspberry Pi Pico W as a network (WiFi) bridge
 
 ---
 
