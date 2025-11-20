@@ -25,7 +25,7 @@
 
 - Bridge TCP client communication via serial interface.
 - Designed for **Arduino boards** that lack built‑in WiFi/Ethernet.
-- Compatible with WiFi‑capable modules (ESP32/ESP8266) acting as a network bridge.
+- Compatible with WiFi‑capable modules (ESP32/ESP8266/Raspberry Pi Pico W, MKR WiFi 1010, etc) acting as a network bridge.
 - Lightweight, header‑only design for embedded use.
 - Example sketches included for quick start.
 
@@ -34,9 +34,9 @@
 ## 📦 Installation
 
 1. Clone this repository into your Arduino `libraries` folder:
-   \```bash
+   ```bash
    git clone [https://github.com/mobizt/SerialTCPClient.git](https://github.com/mobizt/SerialTCPClient.git)
-   \```
+   ```
 
 2. Or download the ZIP from GitHub and install via Arduino IDE:
    - Sketch → Include Library → Add .ZIP Library…
