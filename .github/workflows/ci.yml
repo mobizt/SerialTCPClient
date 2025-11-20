@@ -17,7 +17,7 @@ jobs:
           
           # 1. HTTP GET สำหรับ Uno (ใช้ SoftwareSerial)
           - name: "Client - HTTP GET (Uno)"
-            example: "examples/Basics/Client/ArduinoUNO HTTP GET/ArduinoUNO HTTP GET.ino"
+            example: "examples/Basics/Client/ArduinoUNO_HTTP_GET/ArduinoUNO_HTTP_GET.ino"
             board: uno
             lib_deps: ""
 

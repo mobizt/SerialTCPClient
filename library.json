@@ -1,6 +1,6 @@
 {
   "name": "SerialTCPClient",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Bridge TCP client communication over serial for Arduino boards.",
   "keywords": ["TCP", "serial", "bridge", "WiFi", "ESP32", "ESP8266", "client"],
   "repository": {
