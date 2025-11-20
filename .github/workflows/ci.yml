@@ -15,19 +15,19 @@ jobs:
         include:
           # --- Test Client Examples ---
           
-          # 1. HTTP GET สำหรับ Uno (ใช้ไฟล์ตัวอย่างเฉพาะของ Uno ที่คุณให้มา)
+          # 1. HTTP GET สำหรับ Uno (ใช้ SoftwareSerial)
           - name: "Client - HTTP GET (Uno)"
             example: "examples/Basics/Client/ArduinoUNO HTTP GET/ArduinoUNO HTTP GET.ino"
             board: uno
             lib_deps: ""
 
-          # 2. MQTT เปลี่ยนไปใช้บอร์ด STM32 (BluePill) ตามคำแนะนำ เพื่อให้รองรับ Serial2
-          - name: "Client - MQTT (STM32)"
+          # 2. MQTT เปลี่ยนมาใช้ ESP32 เพื่อให้รองรับ Serial2 ที่โค้ดตัวอย่างใช้
+          - name: "Client - MQTT (ESP32)"
             example: "examples/Basics/Client/MQTT/MQTT.ino"
-            board: bluepill_f103c8
+            board: esp32dev # แก้ไข: ใช้ ESP32 เพื่อแก้ปัญหา Serial2 undefined
             lib_deps: "ArduinoMqttClient"
 
-          # --- Test Host Examples on ESP32 (เดิม) ---
+          # --- Test Host Examples on ESP32 ---
           
           - name: "Host - Basic (ESP32)"
             example: "examples/Basics/Host/Host.ino"
@@ -60,7 +60,6 @@ jobs:
         env:
           PLATFORMIO_CI_SRC: ${{ matrix.example }}
         run: |
-          # สร้าง argument สำหรับ lib_deps ถ้ามีการระบุไว้
           if [ -n "${{ matrix.lib_deps }}" ]; then
             LIB_DEPS_ARG="--project-option=lib_deps=${{ matrix.lib_deps }}"
           else
@@ -69,8 +68,6 @@ jobs:
 
           echo "Building ${{ matrix.example }} for ${{ matrix.board }}..."
           
-          # รันคำสั่ง PlatformIO CI
-          # ใช้ --lib="." เพื่อบอกให้ PIO ใช้ library ในโฟลเดอร์ปัจจุบัน (SerialTCPClient)
           pio ci "$PLATFORMIO_CI_SRC" \
             --board=${{ matrix.board }} \
             --lib="." \
