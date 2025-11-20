@@ -17,12 +17,11 @@
         <stop offset="0%" stop-color="#F57C00"/>
         <stop offset="100%" stop-color="#E65100"/>
     </linearGradient>
-
   </defs>
 
-  <text x="300" y="90" font-size="18" fill="#E65100" text-anchor="middle" font-weight="bold">Serial (RX/TX) ↔ TCP/IP</text>
+  <text x="300" y="85" font-size="20" fill="#E65100" text-anchor="middle" font-weight="bold">Serial ↔ TCP/IP</text>
 
-  <g transform="translate(80, 100)">
+  <g transform="translate(100, 100)">
     <rect x="-8" y="15" width="10" height="6" fill="#333" />
     <rect x="-8" y="25" width="10" height="6" fill="#333" />
     <rect x="-8" y="35" width="10" height="6" fill="#333" />
@@ -40,9 +39,9 @@
     <text x="40" y="48" font-size="24" font-weight="bold" fill="white" text-anchor="middle">UNO</text>
   </g>
 
-  <use href="#customDoubleArrow" transform="translate(200, 140) scale(0.08) translate(-448, -152)"/>
+  <use href="#customDoubleArrow" transform="translate(220, 140) scale(0.08) translate(-448, -152)"/>
 
-  <g transform="translate(240, 100)">
+  <g transform="translate(260, 100)">
     <linearGradient id="espGrad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#F57C00"/>
         <stop offset="100%" stop-color="#E65100"/>
@@ -59,9 +58,9 @@
     <text x="40" y="70" font-size="16" font-weight="bold" fill="white" text-anchor="middle">ESP32</text>
   </g>
 
-  <use href="#customDoubleArrow" transform="translate(360, 140) scale(0.08) translate(-448, -152)"/>
+  <use href="#customDoubleArrow" transform="translate(380, 140) scale(0.08) translate(-448, -152)"/>
 
-  <g transform="translate(400, 110)">
+  <g transform="translate(420, 110)">
     <path d="M 20 45 
              Q 10 45 5 35 
              Q 0 25 10 15 
