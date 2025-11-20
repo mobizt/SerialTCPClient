@@ -1,9 +1,23 @@
-# SerialTCPClient
 
-[![Arduino Library](https://img.shields.io/badge/Arduino-Library-blue.svg)](https://www.arduino.cc/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+<p align="center">
+  <img src="assets/logo.svg" width="600" alt="SerialTCPClient Logo">
+</p>
 
-> **The Arduino bridge for TCP Client** > Provides a simple way to use TCP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
+<h1 align="center">SerialTCPClient</h1>
+
+<p align="center">
+  <a href="https://www.arduino.cc/">
+    <img src="https://img.shields.io/badge/Arduino-Library-blue.svg" alt="Arduino Library">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
+  </a>
+</p>
+
+<p align="center">
+  <b>The Arduino bridge for TCP Client</b><br>
+  Provides a simple way to use TCP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
+</p>
 
 ---
 

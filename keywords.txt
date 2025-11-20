@@ -41,6 +41,7 @@ isNetworkConnected	KEYWORD2
 rebootHost	KEYWORD2
 setDebugLevel	KEYWORD2
 loop	KEYWORD2
+readChunkSize   KEYWORD2
 
 #######################################
 
