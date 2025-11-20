@@ -35,7 +35,7 @@
 
 1. Clone this repository into your Arduino `libraries` folder:
    ```bash
-   git clone [https://github.com/mobizt/SerialTCPClient.git](https://github.com/mobizt/SerialTCPClient.git)
+   git clone https://github.com/mobizt/SerialTCPClient.git
    ```
 
 2. Or download the ZIP from GitHub and install via Arduino IDE:
