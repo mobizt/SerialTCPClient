@@ -1,0 +1,75 @@
+name: PlatformIO CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- Test Client Examples on AVR (Arduino Uno) ---
+          - name: "Client - HTTP GET (Uno)"
+            example: "examples/Basics/Client/HTTP GET/HTTP GET.ino"
+            board: uno
+            lib_deps: ""
+
+          - name: "Client - MQTT (Uno)"
+            example: "examples/Basics/Client/MQTT/MQTT.ino"
+            board: uno
+            # MQTT.ino requires ArduinoMqttClient library
+            lib_deps: "ArduinoMqttClient"
+
+          # --- Test Host Examples on ESP32 ---
+          - name: "Host - Basic (ESP32)"
+            example: "examples/Basics/Host/Host.ino"
+            board: esp32dev
+            lib_deps: ""
+
+          - name: "Host - Secure Connection (ESP32)"
+            example: "examples/Features/SecureConnection/Host/Host.ino"
+            board: esp32dev
+            lib_deps: ""
+
+          - name: "Host - STARTTLS (ESP32)"
+            example: "examples/Features/STARTTLS/Host/Host.ino"
+            board: esp32dev
+            # STARTTLS Host requires ESP_SSLClient
+            lib_deps: "ESP_SSLClient"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install PlatformIO Core
+        run: pip install -U platformio
+
+      - name: Build Example
+        env:
+          PLATFORMIO_CI_SRC: ${{ matrix.example }}
+        run: |
+          # Construct lib_deps argument if dependencies exist
+          if [ -n "${{ matrix.lib_deps }}" ]; then
+            LIB_DEPS_ARG="--project-option=lib_deps=${{ matrix.lib_deps }}"
+          else
+            LIB_DEPS_ARG=""
+          fi
+
+          echo "Building ${{ matrix.example }} for ${{ matrix.board }}..."
+          
+          # Run PlatformIO CI
+          # --lib="." tells PIO to use the current directory as the library
+          pio ci "$PLATFORMIO_CI_SRC" \
+            --board=${{ matrix.board }} \
+            --lib="." \
+            $LIB_DEPS_ARG
