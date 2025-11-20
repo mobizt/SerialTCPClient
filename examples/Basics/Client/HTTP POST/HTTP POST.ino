@@ -1,6 +1,6 @@
 /**
  * ===============================================
- * Simple_HTTP_POST
+ * HTTP POST
  * ===============================================
  * Runs on: The any Arduino device.
  * Host: Requires the "Basics/Host" sketch running on the host.

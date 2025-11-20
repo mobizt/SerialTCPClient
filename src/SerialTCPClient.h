@@ -9,8 +9,11 @@
 using namespace SerialTCPProtocol;
 
 // Buffers
-#define SERIAL_TCP_TX_BUFFER_SIZE 256
-// (RX buffer size is defined in SerialTCPProtocol.h)
+#if defined(__AVR__) || defined(ARDUINO_ARCH_AVR)
+#define SERIAL_TCP_TX_BUFFER_SIZE 128 // Reduced size for Uno
+#else
+#define SERIAL_TCP_TX_BUFFER_SIZE 256 // Full size for ESP32
+#endif
 
 class SerialTCPClient : public Client
 {
@@ -89,7 +92,8 @@ private:
                 {
                     uint16_t new_id = (uint16_t)(pkt[2] << 8) | pkt[3];
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                    DEBUG_PRINT(_debug_level, "[Client]", "Received HOST RESET! New Session ID: " + String(new_id, HEX));
+                    // Removed String concatenation
+                    DEBUG_PRINT(_debug_level, "[Client]", "Received HOST RESET");
 #endif
 
                     // If ID changed, force disconnect
@@ -133,12 +137,16 @@ private:
             if (!_connected_status)
                 _is_ssl = false; // Reset SSL on disconnect
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Client]", "Got Host-Push Status: " + String(_connected_status));
+            if (_connected_status)
+                DEBUG_PRINT(_debug_level, "[Client]", "Got Host-Push Status: Connected");
+            else
+                DEBUG_PRINT(_debug_level, "[Client]", "Got Host-Push Status: Disconnected");
 #endif
             _ack_received = true; // For 'is_connected' command
             break;
 
         case CMD_H_POLL_RESPONSE:
+        {
             if (len < 5)
                 break;
             _connected_status = (bool)pkt[2];
@@ -159,13 +167,14 @@ private:
             }
             _poll_response_received = true;
             break;
+        }
 
         case CMD_H_DATA_PAYLOAD:
         {
             size_t data_len = len - 4; // cmd, slot, crc_lo, crc_hi
             const uint8_t *payload = &pkt[2];
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Client]", "Got Host-Push Data: " + String(data_len) + " bytes");
+            DEBUG_PRINT(_debug_level, "[Client]", "Got Host-Push Data");
 #endif
 
             for (size_t i = 0; i < data_len; i++)
@@ -203,7 +212,7 @@ private:
         _ack_received = false;
         _nak_received = false;
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Client]", "Waiting for ACK (" + String(timeout) + "ms)...");
+        DEBUG_PRINT(_debug_level, "[Client]", "Waiting for ACK...");
 #endif
 
         while (millis() - start < timeout)
@@ -240,7 +249,7 @@ private:
         uint32_t start = millis();
         _ping_response_received = false;
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Client]", "Waiting for PING_RESPONSE (" + String(timeout) + "ms)...");
+        DEBUG_PRINT(_debug_level, "[Client]", "Waiting for PING_RESPONSE...");
 #endif
 
         while (millis() - start < timeout)
@@ -264,7 +273,7 @@ private:
         _ack_received = false;
         _nak_received = false;
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Client]", "Sending command: " + String(cmd, HEX));
+        DEBUG_PRINT(_debug_level, "[Client]", "Sending command...");
 #endif
         if (sendPacket(*sink, cmd, slot, payload, len) == 0)
         {
@@ -295,7 +304,7 @@ private:
             return true;
         }
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Client]", "Flushing TX buffer (" + String(_tx_buffer_len) + " bytes)");
+        DEBUG_PRINT(_debug_level, "[Client]", "Flushing TX buffer...");
 #endif
 
         uint8_t temp_buf[SERIAL_TCP_TX_BUFFER_SIZE];
@@ -403,7 +412,7 @@ private:
         _debug_level = (uint8_t)level;
     }
 
-    void setSerial(HardwareSerial &sink) { this->sink = &sink; }
+    void setSerial(Stream &sink) { this->sink = &sink; }
 
     void maintenance()
     {
@@ -413,7 +422,7 @@ private:
         // Process all incoming data
         while (sink->available())
         {
-            delay(0); // WDT fix
+            serial_tcp_yield(); // Use helper for cross-platform yield/delay
 
             uint8_t b = sink->read();
             size_t cobsLen = _receiver.read_byte(b);
@@ -456,24 +465,24 @@ public:
 
     /**
      * @brief Constructor for SerialTCPClient.
-     * @param sink The HardwareSerial interface (e.g., Serial1) used for communication.
+     * @param sink The Stream interface (e.g., Serial1, SoftwareSerial) used for communication.
      * @param slot The specific client slot ID to use on the serial bridge.
      */
-    SerialTCPClient(HardwareSerial &sink, int slot)
+    SerialTCPClient(Stream &sink, int slot)
         : sink(&sink), slot(slot) {}
 
     /**
      * @brief Constructor for SerialTCPClient (unslotted).
-     * @param sink The HardwareSerial interface (e.g., Serial1) used for communication.
+     * @param sink The Stream interface (e.g., Serial1, SoftwareSerial) used for communication.
      */
-    SerialTCPClient(HardwareSerial &sink)
+    SerialTCPClient(Stream &sink)
         : sink(&sink), slot(0) {}
 
     /**
-     * @brief (Re)initializes the client with a specific HardwareSerial interface.
-     * @param serial The HardwareSerial interface (e.g., Serial1) to bind to.
+     * @brief (Re)initializes the client with a specific Stream interface.
+     * @param serial The Stream interface (e.g., Serial1, SoftwareSerial) to bind to.
      */
-    void begin(HardwareSerial &serial)
+    void begin(Stream &serial)
     {
         this->sink = &serial;
     }
@@ -522,7 +531,9 @@ public:
      */
     int connect(IPAddress ip, uint16_t port) override
     {
-        return connect(ip.toString().c_str(), port, false);
+        char ipStr[16];
+        snprintf(ipStr, sizeof(ipStr), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+        return connect(ipStr, port, false);
     }
 
     /**
@@ -575,7 +586,9 @@ public:
      */
     int connect(IPAddress ip, uint16_t port, bool use_ssl)
     {
-        return connect(ip.toString().c_str(), port, use_ssl);
+        char ipStr[16];
+        snprintf(ipStr, sizeof(ipStr), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+        return connect(ipStr, port, use_ssl);
     }
 
     /**
@@ -690,10 +703,11 @@ public:
 
     /**
      * @brief Gets the number of bytes available.
-     * This calls maintenance() to prime the buffer.
+     * This calls maintenance() to prime the buffer only if needed.
      */
     int available() override
     {
+        // Always call maintenance to drain HW serial buffer
         maintenance();
 
         size_t count = _get_buffered_count();
@@ -707,17 +721,6 @@ public:
             return 0;
         }
 
-        // Second check (smart sync for edge cases)
-        maintenance();
-        count = _get_buffered_count();
-        if (count > 0)
-        {
-#if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Client]", "...data arrived on second check.");
-#endif
-            return count;
-        }
-
         return 0;
     }
 
@@ -727,6 +730,13 @@ public:
      */
     int read() override
     {
+        // If buffer is empty, try to fetch new data from hardware
+        if (_rx_head == _rx_tail)
+        {
+            maintenance();
+        }
+
+        // Check again
         if (_rx_head == _rx_tail)
         {
             return -1;
@@ -745,23 +755,31 @@ public:
      */
     int read(uint8_t *buf, size_t size) override
     {
-        size_t i = 0;
-        for (i = 0; i < size; i++)
-        {
-            // Call our "smart" available() to prime the pump
-            if (available() == 0)
-            {
-                break;
-            }
+        unsigned long start = millis();
+        size_t count = 0;
 
-            int b = read();
-            if (b == -1)
+        while (count < size)
+        {
+            int b = read(); // Try internal buffer
+            if (b >= 0)
             {
-                break;
+                buf[count++] = (uint8_t)b;
             }
-            buf[i] = (uint8_t)b;
+            else
+            {
+                // No data? Pump the serial
+                maintenance();
+
+                // Check Stream timeout
+                if (millis() - start > _timeout)
+                {
+                    break;
+                }
+
+                serial_tcp_yield(); // Use helper for cross-platform yield/delay
+            }
         }
-        return i;
+        return count;
     }
 
     /**
@@ -770,6 +788,9 @@ public:
      */
     int peek() override
     {
+        // FIXED: Ensure maintenance is called before peeking
+        maintenance();
+
         if (_rx_head == _rx_tail)
         {
             return -1;
@@ -822,4 +843,65 @@ public:
     {
         return connected();
     }
+
+#if defined(ENABLE_SERIALTCP_CHUNKED_DECODING)
+    /**
+     * @brief Reads a line of text from the stream to parse chunk size.
+     * Reads hex characters until CRLF.
+     * @return The chunk size in bytes, or -1 on error.
+     */
+    long readChunkSize()
+    {
+        char hexStr[16];
+        int idx = 0;
+        unsigned long start = millis();
+
+        while (millis() - start < _timeout)
+        {
+            int b = read(); // Uses the blocking read via inheritance or override if we called read()
+            // Actually read() above is byte-by-byte but we need peek/read
+            // Use our own robust read
+            if (b == -1)
+            {
+                if (!connected())
+                    return -1;
+                continue;
+            }
+
+            char c = (char)b;
+
+            if (c == '\r')
+                continue; // Skip CR
+            if (c == '\n')
+            {
+                hexStr[idx] = '\0';
+                if (idx == 0)
+                    return -1; // Empty line
+                return strtol(hexStr, NULL, 16);
+            }
+
+            if (idx < sizeof(hexStr) - 1)
+            {
+                // Keep only hex digits
+                if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+                {
+                    hexStr[idx++] = c;
+                }
+                else if (c == ';') // Chunk extension separator
+                {
+                    // Consume rest of line until \n
+                    while (millis() - start < _timeout)
+                    {
+                        int next = read();
+                        if (next == '\n')
+                            break;
+                    }
+                    hexStr[idx] = '\0';
+                    return strtol(hexStr, NULL, 16);
+                }
+            }
+        }
+        return -1; // Timeout
+    }
+#endif
 };

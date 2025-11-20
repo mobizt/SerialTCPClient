@@ -19,6 +19,9 @@ using namespace SerialTCPProtocol;
 #define HOST_HAS_WIFI
 #endif
 
+// Maximum length for CA cert filename
+#define MAX_FILENAME_LEN 64
+
 struct QueueNode
 {
     uint8_t data;
@@ -112,7 +115,9 @@ private:
     RebootCallback _reboot_callback = nullptr;
     PreConnectCallback _pre_connect_callback = nullptr;
 
-    String _ca_cert_filenames[MAX_TCP_CLIENTS];
+    // Replaced String with fixed char array
+    char _ca_cert_filenames[MAX_TCP_CLIENTS][MAX_FILENAME_LEN];
+
     DynamicQueue _tx_queues[MAX_TCP_CLIENTS];
     enum class TxState
     {
@@ -135,7 +140,10 @@ private:
         if (slot == GLOBAL_SLOT_ID)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "Got Global Command: " + String(cmd, HEX));
+            // Removed String concatenation
+            char msg[32];
+            snprintf(msg, sizeof(msg), "Got Global Command: %02X", cmd);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
             bool global_success = false;
             switch (cmd)
@@ -211,7 +219,9 @@ private:
         if (slot >= MAX_TCP_CLIENTS)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: Invalid slot " + String(slot));
+            char msg[32];
+            snprintf(msg, sizeof(msg), "ERROR: Invalid slot %d", slot);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
             sendPacket(*sink, CMD_H_NAK, slot, nullptr, 0);
             return;
@@ -221,14 +231,18 @@ private:
         if (!client && cmd != CMD_C_DATA_ACK && cmd != CMD_C_START_TLS)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: No client in slot " + String(slot));
+            char msg[32];
+            snprintf(msg, sizeof(msg), "ERROR: No client in slot %d", slot);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
             sendPacket(*sink, CMD_H_NAK, slot, nullptr, 0);
             return;
         }
 
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Host]", "Got Command: " + String(cmd, HEX) + " for slot " + String(slot));
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Got Command: %02X for slot %d", cmd, slot);
+        DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
 
         bool success = false;
@@ -246,15 +260,18 @@ private:
             memcpy(host, &payload[4], host_len);
             host[host_len] = '\0';
 
-            if (_pre_connect_callback && _ca_cert_filenames[slot].length() > 0)
+            // Check if filename string is not empty
+            if (_pre_connect_callback && _ca_cert_filenames[slot][0] != '\0')
             {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "Invoking pre-connect callback for slot " + String(slot));
+                char log[64];
+                snprintf(log, sizeof(log), "Invoking pre-connect callback for slot %d", slot);
+                DEBUG_PRINT(_debug_level, "[Host]", log);
 #endif
-                _pre_connect_callback(slot, _ca_cert_filenames[slot].c_str());
+                _pre_connect_callback(slot, _ca_cert_filenames[slot]);
             }
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "Connecting to " + String(host) + ":" + String(port));
+            DEBUG_PRINT(_debug_level, "[Host]", "Connecting...");
 #endif
             if (client->connect(host, port))
             {
@@ -263,14 +280,15 @@ private:
                 _tx_queues[slot].clear();
                 _tx_states[slot] = TxState::IDLE;
             }
-            _ca_cert_filenames[slot] = "";
+            // Reset filename buffer
+            _ca_cert_filenames[slot][0] = '\0';
             break;
         }
         case CMD_C_WRITE:
             if (client && client->connected())
             {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "Writing " + String(payload_len) + " bytes");
+                DEBUG_PRINT(_debug_level, "[Host]", "Writing data...");
 #endif
                 if (client->write(payload, payload_len) == payload_len)
                 {
@@ -290,7 +308,7 @@ private:
             _client_connected_state[slot] = false;
             _tx_queues[slot].clear();
             _tx_states[slot] = TxState::IDLE;
-            _ca_cert_filenames[slot] = "";
+            _ca_cert_filenames[slot][0] = '\0'; // Clear buffer
             success = true;
             break;
 
@@ -303,7 +321,7 @@ private:
                 if (client_sid != 0 && client_sid != _session_id)
                 {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                    DEBUG_PRINT(_debug_level, "[Host]", "Session Mismatch! Host:" + String(_session_id, HEX) + " Client:" + String(client_sid, HEX));
+                    DEBUG_PRINT(_debug_level, "[Host]", "Session Mismatch!");
 #endif
                     uint8_t reset_pld[2];
                     reset_pld[0] = (uint8_t)(_session_id >> 8);
@@ -314,20 +332,11 @@ private:
             }
 
             bool is_connected = (client ? (uint8_t)client->connected() : 0);
-            size_t data_len = 0;
-            // In Poll mode, we can fetch data directly if needed,
-            // but sticking to the "Async Push via Queues" model
-            // means data is usually sent via processDataQueues().
-            // However, to support the request, we can reply with status.
-
-            // We reply with just status here. Data is pushed separately.
-            // (Alternatively, we could send data here if we switched to pure Pull model)
-            // For now, we just ack the poll with status.
-
+            // Data length 0 for poll response (data is pushed async)
             size_t pld_len = 3;
             uint8_t response_pld[pld_len];
             response_pld[0] = (uint8_t)is_connected;
-            response_pld[1] = 0; // data len 0
+            response_pld[1] = 0;
             response_pld[2] = 0;
 
             sendPacket(*sink, CMD_H_POLL_RESPONSE, slot, response_pld, pld_len);
@@ -349,7 +358,9 @@ private:
             if (_tx_states[slot] == TxState::WAIT_FOR_ACK)
             {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "Got Data ACK for slot " + String(slot));
+                char msg[40];
+                snprintf(msg, sizeof(msg), "Got Data ACK for slot %d", slot);
+                DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                 _tx_states[slot] = TxState::IDLE;
             }
@@ -357,19 +368,25 @@ private:
 
         case CMD_C_START_TLS:
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "Got STARTTLS request for slot " + String(slot));
+        {
+            char msg[40];
+            snprintf(msg, sizeof(msg), "Got STARTTLS for slot %d", slot);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
+        }
 #endif
             if (_tls_callbacks[slot] != nullptr)
             {
                 success = _tls_callbacks[slot](slot);
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "STARTTLS callback returned: " + String(success));
+                DEBUG_PRINT(_debug_level, "[Host]", success ? "STARTTLS OK" : "STARTTLS Failed");
 #endif
             }
             else
             {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "ERROR: No STARTTLS callback registered for slot " + String(slot));
+                char msg[50];
+                snprintf(msg, sizeof(msg), "ERROR: No STARTTLS callback for slot %d", slot);
+                DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                 success = false;
             }
@@ -377,14 +394,12 @@ private:
 
         case CMD_C_SET_CA_CERT:
         {
-            if (payload_len > 0)
+            if (payload_len > 0 && payload_len < MAX_FILENAME_LEN)
             {
-                char filename[payload_len + 1];
-                memcpy(filename, payload, payload_len);
-                filename[payload_len] = '\0';
-                _ca_cert_filenames[slot] = String(filename);
+                memcpy(_ca_cert_filenames[slot], payload, payload_len);
+                _ca_cert_filenames[slot][payload_len] = '\0';
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "Set sticky CA cert for slot " + String(slot) + ": " + _ca_cert_filenames[slot]);
+                DEBUG_PRINT(_debug_level, "[Host]", "Set sticky CA cert for slot");
 #endif
                 success = true;
             }
@@ -393,7 +408,9 @@ private:
 
         default:
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            DEBUG_PRINT(_debug_level, "[Host]", "ERROR: Unknown command " + String(cmd, HEX));
+            char msg[32];
+            snprintf(msg, sizeof(msg), "ERROR: Unknown command %02X", cmd);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
             break;
         }
@@ -449,7 +466,9 @@ private:
                     if (is_connected)
                     {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                        DEBUG_PRINT(_debug_level, "[Host]", "Pushing connect status (" + String(is_connected) + ") to slot " + String(i));
+                        char msg[50];
+                        snprintf(msg, sizeof(msg), "Pushing connect status (1) to slot %d", i);
+                        DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                         _client_connected_state[i] = is_connected;
                         uint8_t status = (uint8_t)is_connected;
@@ -465,17 +484,21 @@ private:
                         if (_tx_queues[i].available() == 0 && _tx_states[i] == TxState::IDLE)
                         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                            DEBUG_PRINT(_debug_level, "[Host]", "Queue empty. Pushing disconnect status to slot " + String(i));
+                            char msg[50];
+                            snprintf(msg, sizeof(msg), "Queue empty. Pushing disconnect to slot %d", i);
+                            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                             _client_connected_state[i] = is_connected;
-                            _ca_cert_filenames[i] = "";
+                            _ca_cert_filenames[i][0] = '\0'; // Clear cert filename
                             uint8_t status = (uint8_t)is_connected;
                             sendPacket(*sink, CMD_H_CONNECTED_STATUS, i, &status, 1);
                         }
                         else
                         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                            DEBUG_PRINT(_debug_level, "[Host]", "Queue has " + String(_tx_queues[i].available()) + " bytes. Delaying disconnect message.");
+                            char msg[64];
+                            snprintf(msg, sizeof(msg), "Queue has %u bytes. Delaying disconnect.", (unsigned int)_tx_queues[i].available());
+                            DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                         }
                     }
@@ -496,7 +519,9 @@ private:
                 if (millis() - _last_data_send_time[i] > SERIAL_TCP_DATA_PACKET_TIMEOUT)
                 {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                    DEBUG_PRINT(_debug_level, "[Host]", "Timeout, resending data packet to slot " + String(i));
+                    char msg[50];
+                    snprintf(msg, sizeof(msg), "Timeout, resending data to slot %d", i);
+                    DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
 
                     size_t rawLen = 2 + _last_data_packet_len[i];
@@ -539,7 +564,9 @@ private:
                 if (len_to_send == 0)
                     continue;
 #if defined(ENABLE_SERIALTCP_DEBUG)
-                DEBUG_PRINT(_debug_level, "[Host]", "Sending " + String(len_to_send) + " bytes to slot " + String(i));
+                char msg[50];
+                snprintf(msg, sizeof(msg), "Sending %u bytes to slot %d", (unsigned int)len_to_send, i);
+                DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
                 sendPacket(*sink, CMD_H_DATA_PAYLOAD, i, &_last_data_packet[i][2], len_to_send);
 
@@ -560,6 +587,12 @@ public:
         _session_id = (uint16_t)micros();
         if (_session_id == 0)
             _session_id = 1;
+
+        // Initialize filename buffers
+        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        {
+            _ca_cert_filenames[i][0] = '\0';
+        }
     }
 
     /**
@@ -572,7 +605,9 @@ public:
     void notifyBoot()
     {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-        DEBUG_PRINT(_debug_level, "[Host]", "Broadcasting HOST_RESET. Session: " + String(_session_id, HEX));
+        char msg[50];
+        snprintf(msg, sizeof(msg), "Broadcasting HOST_RESET. Session: %04X", _session_id);
+        DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
         uint8_t payload[2];
         payload[0] = (uint8_t)(_session_id >> 8);

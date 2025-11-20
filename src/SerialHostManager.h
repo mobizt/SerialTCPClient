@@ -8,7 +8,7 @@ class SerialHostManager
     friend class SerialTCPClient;
 
 public:
-    SerialHostManager(HardwareSerial &sink)
+    SerialHostManager(Stream &sink)
         : sink(&sink) { _serial_tcp_client.setSerial(sink); }
 
     /**
@@ -76,7 +76,7 @@ public:
     }
 
 private:
-    HardwareSerial *sink = nullptr;
+    Stream *sink = nullptr;
     SerialTCPClient _serial_tcp_client;
 };
 #endif

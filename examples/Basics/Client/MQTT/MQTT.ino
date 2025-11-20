@@ -1,6 +1,6 @@
 /**
  * ===============================================
- * Simple_MQTT
+ * MQTT
  * ===============================================
  * Runs on: The any Arduino device.
  * Host: Requires the "Basics/Host" sketch running on the host.
@@ -56,7 +56,6 @@ void connectMqt()
     Serial.print("Waiting for messages on topic: ");
     Serial.println(topic);
     Serial.println();
-    mqttReady = true;
 }
 
 void setup()

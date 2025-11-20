@@ -22,17 +22,27 @@
 // END DEBUG
 
 // Configuration
+// RAM Optimization for Low-Memory Boards (Uno, Nano, Mega)
+#if defined(__AVR__) || defined(ARDUINO_ARCH_AVR)
+#define SERIAL_TCP_RX_BUFFER_SIZE 256
+#define SERIAL_TCP_HOST_TX_BUFFER_SIZE 256
+#define SERIAL_TCP_DATA_PAYLOAD_SIZE 64
+const size_t MAX_PACKET_BUFFER_SIZE = 128;
+#else
+// Defaults for ESP32, ESP8266, etc.
 #define SERIAL_TCP_RX_BUFFER_SIZE 1024
 #define SERIAL_TCP_HOST_TX_BUFFER_SIZE 1024
-#define SERIAL_TCP_DATA_PACKET_TIMEOUT 500
 #define SERIAL_TCP_DATA_PAYLOAD_SIZE 250
+const size_t MAX_PACKET_BUFFER_SIZE = 256;
+#endif
+
+#define SERIAL_TCP_DATA_PACKET_TIMEOUT 500
 
 /**
  * @brief Contains the shared logic for the Serial-TCP bridge protocol.
  */
 namespace SerialTCPProtocol
 {
-    const size_t MAX_PACKET_BUFFER_SIZE = 256;
     const uint8_t FRAME_DELIMITER = 0x00;
     const uint8_t GLOBAL_SLOT_ID = 0xFF;
     const uint32_t DEFAULT_CMD_TIMEOUT = 5000;
@@ -65,7 +75,7 @@ namespace SerialTCPProtocol
         CMD_H_NAK = 0x81,
         CMD_H_NET_STATUS = 0x84,
         CMD_H_PING_RESPONSE = 0x86,
-        CMD_H_HOST_RESET = 0x87, 
+        CMD_H_HOST_RESET = 0x87,
 
         CMD_H_CONNECTED_STATUS = 0x94,
         CMD_H_DATA_PAYLOAD = 0x95,

@@ -1,6 +1,6 @@
 /**
  * ===============================================
- * Simple_HTTP_GET
+ * HTTP GET
  * ===============================================
  * Runs on: The any Arduino device.
  * Host: Requires the "Basics/Host" sketch running on the host.
@@ -16,9 +16,9 @@ const long SERIAL_BAUD = 115200; // Coresponding to the baud rate used in the ho
 
 SerialTCPClient client(Serial2, CLIENT_SLOT);
 
-const char *server = "example.com";
-const int port = 80; // Please ensure that the client on slot 0 of the host side
-                     // can handle HTTP (port 80) requests.
+const char *server = "httpbin.org";
+const int port = 443; // Please ensure that the client on slot 0 of the host side
+                     // can handle HTTPS (port 443) requests.
 
 void setup()
 {
