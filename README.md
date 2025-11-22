@@ -15,8 +15,15 @@
 </p>
 
 <p align="center">
-  <b>The Arduino bridge for TCP Client</b><br>
-  Provides a simple way to use TCP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
+Bring secure TCP/UDP networking to any Arduino board via a simple serial bridge.
+</p>
+
+`SerialTCPClient` provides a simple way to use TCP/UDP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
+
+It is designed for Arduino boards such as AVR, STM32, and Teensy that lack built‑in WiFi or Ethernet, offering a straightforward alternative to firmware‑based solutions available only on certain boards. By bridging communication through modules like ESP32, ESP8266, Raspberry Pi Pico W, or MKR WiFi 1010, the library makes network access broadly available. With support for SSL/TLS and protocol upgrades, SerialTCPClient enables secure communication without requiring firmware‑level certificate management, making it a practical and flexible option for embedded developers.
+
+<p align="center">
+  <img src="assets/diagram.svg" alt="SerialTCPClient communication flow" width="600"/>
 </p>
 
 ---
@@ -48,6 +55,10 @@
 
 - Arduino AVR boards (e.g., Uno, Mega2560)
 - ESP32 / ESP8266 (as WiFi bridge)
+- Raspberry Pi Pico W
+- STM32 series
+- Teensy boards
+- MKR WiFi 1010, MKR 1000 WiFi, Arduino UNO WiFi Rev2
 - Other boards with HardwareSerial support
 
 ---

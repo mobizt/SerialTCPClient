@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240">
+  <style>
+    .box { rx: 12; ry: 12; stroke: #333; stroke-width: 1.5; }
+    .label { font-family: Arial, sans-serif; font-size: 14px; fill: #fff; text-anchor: middle; dominant-baseline: middle; }
+    .label-dark { fill: #111; }
+    .arrow { stroke: #111; stroke-width: 2; fill: none; }
+    .arrowhead { fill: #111; }
+    .arrow-label { font-family: Arial, sans-serif; font-size: 12px; fill: #111; text-anchor: middle; }
+    .api-label { font-family: Consolas, monospace; font-size: 11px; fill: #111; text-anchor: middle; }
+  </style>
+
+  <!-- Boxes -->
+  <rect class="box" x="40" y="84" width="200" height="72" fill="#2f80ed"/>
+  <text class="label" x="140" y="120">Arduino (no WiFi)</text>
+
+  <rect class="box" x="300" y="84" width="200" height="72" fill="#27ae60"/>
+  <text class="label" x="400" y="120">ESP32/ESP8266 host</text>
+
+  <rect class="box" x="560" y="84" width="200" height="72" fill="#bb6bd9"/>
+  <text class="label label-dark" x="660" y="120">TCP Server</text>
+
+  <!-- Arrow: Arduino → ESP -->
+  <line class="arrow" x1="240" y1="120" x2="300" y2="120"/>
+  <polygon class="arrowhead" points="300,120 292,116 292,124"/>
+  <text class="arrow-label" x="270" y="70">Serial</text>
+  <text class="api-label" x="270" y="150">write()</text>
+  <text class="api-label" x="270" y="170">read()</text>
+  <text class="api-label" x="270" y="190">connect()</text>
+
+  <!-- Arrow: ESP → TCP -->
+  <line class="arrow" x1="500" y1="120" x2="560" y2="120"/>
+  <polygon class="arrowhead" points="560,120 552,116 552,124"/>
+  <text class="arrow-label" x="530" y="70">WiFi</text>
+  <text class="api-label" x="530" y="150">connect()</text>
+  <text class="api-label" x="530" y="170">write()</text>
+  <text class="api-label" x="530" y="190">read()</text>
+</svg>
