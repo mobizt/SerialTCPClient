@@ -1,10 +1,18 @@
-#pragma once
+/*
+ * SPDX-FileCopyrightText: 2025 Suwatchai K. <suwatchai@outlook.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef SERIAL_NETWORK_HOST_H
+#define SERIAL_NETWORK_HOST_H
 
 #include <Stream.h>
 #include <Client.h>
-#include "SerialTCPProtocol.h"
+#include <Udp.h>                   // Required for UDP support
+#include "SerialNetworkProtocol.h" // Updated protocol file name
 
-using namespace SerialTCPProtocol;
+using namespace SerialNetworkProtocol; // Updated namespace
 
 // Detect WiFi capability across Arduino boards
 #if defined(ESP32) || defined(ESP8266)
@@ -21,6 +29,25 @@ using namespace SerialTCPProtocol;
 
 // Maximum length for CA cert filename
 #define MAX_FILENAME_LEN 64
+
+// UDP Host Slot State
+struct UdpSlotState
+{
+    IPAddress remoteIP;
+    uint16_t remotePort = 0;
+    size_t packetSize = 0;
+    size_t readPos = 0;
+    uint8_t *packetData = nullptr; // Dynamically allocated buffer for the incoming packet
+
+    // For TX reassembly
+    uint8_t *txBuffer = nullptr;
+    size_t txLen = 0;
+    uint16_t txTargetPort = 0;
+
+    // To store the address payload from CMD_C_UDP_BEGIN_PACKET
+    uint8_t targetAddrPayload[MAX_PACKET_BUFFER_SIZE];
+    size_t targetAddrPayloadLen = 0;
+};
 
 struct QueueNode
 {
@@ -96,12 +123,19 @@ typedef bool (*ConnectNetworkCallback)();
 typedef void (*RebootCallback)();
 typedef void (*PreConnectCallback)(int slot, const char *ca_cert_filename);
 
-class SerialTCPHost
+class SerialNetworkHost // Renamed from SerialTCPHost
 {
 private:
     Stream *sink = nullptr;
-    Client *_clients[MAX_TCP_CLIENTS] = {nullptr};
-    bool _client_connected_state[MAX_TCP_CLIENTS] = {false};
+
+    // Network Clients
+    Client *_tcp_clients[MAX_SLOTS] = {nullptr}; // TCP Clients
+    UDP *_udp_clients[MAX_SLOTS] = {nullptr};    // UDP Clients
+
+    // Connection States
+    bool _tcp_connected_state[MAX_SLOTS] = {false}; // TCP Connection State
+    UdpSlotState _udp_states[MAX_SLOTS];            // UDP State
+
     PacketReceiver _receiver;
     uint8_t _decoded_buffer[MAX_PACKET_BUFFER_SIZE];
 
@@ -109,26 +143,25 @@ private:
 
     uint16_t _session_id = 0;
 
-    StartTLSCallback _tls_callbacks[MAX_TCP_CLIENTS] = {nullptr};
+    StartTLSCallback _tls_callbacks[MAX_SLOTS] = {nullptr};
     SetWiFiCallback _set_wifi_callback = nullptr;
     ConnectNetworkCallback _connect_net_callback = nullptr;
     RebootCallback _reboot_callback = nullptr;
     PreConnectCallback _pre_connect_callback = nullptr;
 
-    // Replaced String with fixed char array
-    char _ca_cert_filenames[MAX_TCP_CLIENTS][MAX_FILENAME_LEN];
+    char _ca_cert_filenames[MAX_SLOTS][MAX_FILENAME_LEN];
 
-    DynamicQueue _tx_queues[MAX_TCP_CLIENTS];
+    DynamicQueue _tx_queues[MAX_SLOTS];
     enum class TxState
     {
         IDLE,
         WAIT_FOR_ACK
     };
-    TxState _tx_states[MAX_TCP_CLIENTS] = {TxState::IDLE};
+    TxState _tx_states[MAX_SLOTS] = {TxState::IDLE};
 
-    uint32_t _last_data_send_time[MAX_TCP_CLIENTS] = {0};
-    uint8_t _last_data_packet[MAX_TCP_CLIENTS][MAX_PACKET_BUFFER_SIZE];
-    size_t _last_data_packet_len[MAX_TCP_CLIENTS] = {0};
+    uint32_t _last_data_send_time[MAX_SLOTS] = {0};
+    uint8_t _last_data_packet[MAX_SLOTS][MAX_PACKET_BUFFER_SIZE];
+    size_t _last_data_packet_len[MAX_SLOTS] = {0};
 
     void processCommand(const uint8_t *pkt, size_t len)
     {
@@ -140,7 +173,6 @@ private:
         if (slot == GLOBAL_SLOT_ID)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
-            // Removed String concatenation
             char msg[32];
             snprintf(msg, sizeof(msg), "Got Global Command: %02X", cmd);
             DEBUG_PRINT(_debug_level, "[Host]", msg);
@@ -216,7 +248,7 @@ private:
             return;
         }
 
-        if (slot >= MAX_TCP_CLIENTS)
+        if (slot >= MAX_SLOTS)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
             char msg[32];
@@ -227,7 +259,195 @@ private:
             return;
         }
 
-        Client *client = _clients[slot];
+        bool success = false;
+
+        // UDP Command Handling
+        if (cmd >= CMD_C_UDP_BEGIN && cmd <= CMD_C_UDP_PARSE_PACKET)
+        {
+            UDP *udpClient = _udp_clients[slot];
+            if (!udpClient)
+            {
+#if defined(ENABLE_SERIALTCP_DEBUG)
+                DEBUG_PRINT(_debug_level, "[Host]", "ERROR: No UDP client in slot");
+#endif
+                sendPacket(*sink, CMD_H_NAK, slot, nullptr, 0);
+                return;
+            }
+
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Got UDP Command: %02X for slot %d", cmd, slot);
+            DEBUG_PRINT(_debug_level, "[Host]", msg);
+#endif
+
+            switch (cmd)
+            {
+            case CMD_C_UDP_BEGIN:
+            {
+                if (payload_len < 2)
+                    break;
+                uint16_t localPort = (uint16_t)(payload[0] << 8) | payload[1];
+                if (udpClient->begin(localPort) == 1)
+                    success = true;
+                break;
+            }
+            case CMD_C_UDP_END:
+            {
+                udpClient->stop();
+                if (_udp_states[slot].packetData)
+                {
+                    delete[] _udp_states[slot].packetData;
+                    _udp_states[slot].packetData = nullptr;
+                }
+                if (_udp_states[slot].txBuffer)
+                {
+                    delete[] _udp_states[slot].txBuffer;
+                    _udp_states[slot].txBuffer = nullptr;
+                }
+                _udp_states[slot].packetSize = 0;
+                success = true;
+                break;
+            }
+            case CMD_C_UDP_BEGIN_PACKET:
+            {
+                if (payload_len < 3)
+                    break;
+                uint16_t port = (uint16_t)(payload[0] << 8) | payload[1];
+
+                if (_udp_states[slot].txBuffer)
+                {
+                    delete[] _udp_states[slot].txBuffer;
+                }
+                _udp_states[slot].txBuffer = new uint8_t[SERIAL_UDP_RX_BUFFER_SIZE];
+                _udp_states[slot].txLen = 0;
+                _udp_states[slot].txTargetPort = port;
+
+                if (_udp_states[slot].txBuffer && payload_len <= MAX_PACKET_BUFFER_SIZE)
+                {
+                    memcpy(_udp_states[slot].targetAddrPayload, payload, payload_len);
+                    _udp_states[slot].targetAddrPayloadLen = payload_len;
+                    success = true;
+                }
+                else
+                {
+                    if (_udp_states[slot].txBuffer)
+                    {
+                        delete[] _udp_states[slot].txBuffer;
+                    }
+                    _udp_states[slot].txBuffer = nullptr;
+                    success = false;
+                }
+                break;
+            }
+            case CMD_C_UDP_WRITE_DATA:
+            {
+                if (!_udp_states[slot].txBuffer || _udp_states[slot].txLen + payload_len > SERIAL_UDP_RX_BUFFER_SIZE)
+                    break;
+                memcpy(&_udp_states[slot].txBuffer[_udp_states[slot].txLen], payload, payload_len);
+                _udp_states[slot].txLen += payload_len;
+                success = true;
+                break;
+            }
+            case CMD_C_UDP_END_PACKET:
+            {
+                uint8_t *addr_payload = _udp_states[slot].targetAddrPayload;
+                size_t addr_len = _udp_states[slot].targetAddrPayloadLen;
+                uint16_t port = _udp_states[slot].txTargetPort;
+                uint8_t type = (addr_len > 2) ? addr_payload[2] : 0xFF;
+
+                bool packet_started = false;
+                if (type == 0 && addr_len == 7)
+                {
+                    IPAddress targetIP(addr_payload[3], addr_payload[4], addr_payload[5], addr_payload[6]);
+                    packet_started = udpClient->beginPacket(targetIP, port);
+                }
+                else if (type == 1 && addr_len > 4)
+                {
+                    uint8_t host_len = addr_payload[3];
+                    char host_name[host_len + 1];
+                    memcpy(host_name, &addr_payload[4], host_len);
+                    host_name[host_len] = '\0';
+                    packet_started = udpClient->beginPacket(host_name, port);
+                }
+
+                if (packet_started && _udp_states[slot].txBuffer)
+                {
+                    size_t written = udpClient->write(_udp_states[slot].txBuffer, _udp_states[slot].txLen);
+                    if (written == _udp_states[slot].txLen)
+                        success = udpClient->endPacket();
+                }
+
+                if (_udp_states[slot].txBuffer)
+                    delete[] _udp_states[slot].txBuffer;
+                _udp_states[slot].txBuffer = nullptr;
+                _udp_states[slot].txLen = 0;
+                break;
+            }
+            case CMD_C_UDP_PARSE_PACKET:
+            {
+                int packetSize = udpClient->parsePacket();
+                if (packetSize > 0)
+                {
+                    if (_udp_states[slot].packetData)
+                    {
+                        delete[] _udp_states[slot].packetData;
+                    }
+                    size_t buf_size = min((size_t)packetSize, (size_t)SERIAL_UDP_RX_BUFFER_SIZE);
+                    _udp_states[slot].packetData = new uint8_t[buf_size];
+
+                    if (_udp_states[slot].packetData)
+                    {
+                        size_t readLen = udpClient->read(_udp_states[slot].packetData, buf_size);
+                        if (readLen > 0)
+                        {
+                            _udp_states[slot].packetSize = readLen;
+                            _udp_states[slot].readPos = 0;
+                            _udp_states[slot].remoteIP = udpClient->remoteIP();
+                            _udp_states[slot].remotePort = udpClient->remotePort();
+
+                            uint8_t response_pld[8];
+                            response_pld[0] = _udp_states[slot].remoteIP[0];
+                            response_pld[1] = _udp_states[slot].remoteIP[1];
+                            response_pld[2] = _udp_states[slot].remoteIP[2];
+                            response_pld[3] = _udp_states[slot].remoteIP[3];
+                            response_pld[4] = (uint8_t)(_udp_states[slot].remotePort >> 8);
+                            response_pld[5] = (uint8_t)(_udp_states[slot].remotePort & 0xFF);
+                            response_pld[6] = (uint8_t)(readLen >> 8);
+                            response_pld[7] = (uint8_t)(readLen & 0xFF);
+
+                            sendPacket(*sink, CMD_H_UDP_PACKET_INFO, slot, response_pld, 8);
+                            sendPacket(*sink, CMD_H_UDP_DATA_PAYLOAD, slot, _udp_states[slot].packetData, readLen);
+
+                            delete[] _udp_states[slot].packetData;
+                            _udp_states[slot].packetData = nullptr;
+                        }
+                        else
+                        {
+                            delete[] _udp_states[slot].packetData;
+                            _udp_states[slot].packetData = nullptr;
+                            _udp_states[slot].packetSize = 0;
+                        }
+                    }
+                }
+                success = true;
+
+                // PARSE_PACKET implicitly returns ACK if no packet found,
+                // or sends INFO/PAYLOAD if packet found.
+                // We send ACK at the end of the block if control reaches there.
+            }
+            }
+
+#if defined(ENABLE_SERIALTCP_DEBUG)
+            DEBUG_PRINT(_debug_level, "[Host]", success ? "Sending ACK" : "Sending NAK");
+#endif
+
+            sendPacket(*sink, success ? CMD_H_ACK : CMD_H_NAK, slot, nullptr, 0);
+            return;
+        }
+
+        // TCP Command Handling
+        Client *client = _tcp_clients[slot];
+
         if (!client && cmd != CMD_C_DATA_ACK && cmd != CMD_C_START_TLS)
         {
 #if defined(ENABLE_SERIALTCP_DEBUG)
@@ -245,7 +465,6 @@ private:
         DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
 
-        bool success = false;
         switch (cmd)
         {
         case CMD_C_CONNECT_HOST:
@@ -256,9 +475,9 @@ private:
             uint8_t host_len = payload[3];
             if (host_len > payload_len - 4)
                 break;
-            char host[host_len + 1];
-            memcpy(host, &payload[4], host_len);
-            host[host_len] = '\0';
+            char host_name[host_len + 1];
+            memcpy(host_name, &payload[4], host_len);
+            host_name[host_len] = '\0';
 
             // Check if filename string is not empty
             if (_pre_connect_callback && _ca_cert_filenames[slot][0] != '\0')
@@ -273,10 +492,10 @@ private:
 #if defined(ENABLE_SERIALTCP_DEBUG)
             DEBUG_PRINT(_debug_level, "[Host]", "Connecting...");
 #endif
-            if (client->connect(host, port))
+            if (client->connect(host_name, port))
             {
                 success = true;
-                _client_connected_state[slot] = true;
+                _tcp_connected_state[slot] = true;
                 _tx_queues[slot].clear();
                 _tx_states[slot] = TxState::IDLE;
             }
@@ -305,10 +524,10 @@ private:
 #endif
                 client->stop();
             }
-            _client_connected_state[slot] = false;
+            _tcp_connected_state[slot] = false;
             _tx_queues[slot].clear();
             _tx_states[slot] = TxState::IDLE;
-            _ca_cert_filenames[slot][0] = '\0'; // Clear buffer
+            _ca_cert_filenames[slot][0] = '\0';
             success = true;
             break;
 
@@ -349,7 +568,7 @@ private:
             DEBUG_PRINT(_debug_level, "[Host]", "Client is polling for status");
 #endif
             uint8_t status = (client ? (uint8_t)client->connected() : 0);
-            _client_connected_state[slot] = status;
+            _tcp_connected_state[slot] = status;
             sendPacket(*sink, CMD_H_CONNECTED_STATUS, slot, &status, 1);
             return;
         }
@@ -450,18 +669,18 @@ private:
 
     void queueNetworkData()
     {
-        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        for (int i = 0; i < MAX_SLOTS; i++)
         {
-            if (_clients[i])
+            if (_tcp_clients[i])
             {
-                while (_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
+                while (_tcp_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
                 {
-                    _tx_queues[i].enqueue(_clients[i]->read());
+                    _tx_queues[i].enqueue(_tcp_clients[i]->read());
                 }
 
-                bool is_connected = _clients[i]->connected();
+                bool is_connected = _tcp_clients[i]->connected();
 
-                if (is_connected != _client_connected_state[i])
+                if (is_connected != _tcp_connected_state[i])
                 {
                     if (is_connected)
                     {
@@ -470,15 +689,15 @@ private:
                         snprintf(msg, sizeof(msg), "Pushing connect status (1) to slot %d", i);
                         DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
-                        _client_connected_state[i] = is_connected;
+                        _tcp_connected_state[i] = is_connected;
                         uint8_t status = (uint8_t)is_connected;
                         sendPacket(*sink, CMD_H_CONNECTED_STATUS, i, &status, 1);
                     }
                     else
                     {
-                        while (_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
+                        while (_tcp_clients[i]->available() > 0 && _tx_queues[i].space() > 0)
                         {
-                            _tx_queues[i].enqueue(_clients[i]->read());
+                            _tx_queues[i].enqueue(_tcp_clients[i]->read());
                         }
 
                         if (_tx_queues[i].available() == 0 && _tx_states[i] == TxState::IDLE)
@@ -488,7 +707,7 @@ private:
                             snprintf(msg, sizeof(msg), "Queue empty. Pushing disconnect to slot %d", i);
                             DEBUG_PRINT(_debug_level, "[Host]", msg);
 #endif
-                            _client_connected_state[i] = is_connected;
+                            _tcp_connected_state[i] = is_connected;
                             _ca_cert_filenames[i][0] = '\0'; // Clear cert filename
                             uint8_t status = (uint8_t)is_connected;
                             sendPacket(*sink, CMD_H_CONNECTED_STATUS, i, &status, 1);
@@ -509,9 +728,9 @@ private:
 
     void processDataQueues()
     {
-        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        for (int i = 0; i < MAX_SLOTS; i++)
         {
-            if (!_clients[i])
+            if (!_tcp_clients[i])
                 continue;
 
             if (_tx_states[i] == TxState::WAIT_FOR_ACK)
@@ -582,16 +801,30 @@ public:
      * @param sink The Stream interface (e.g., Serial, Serial1) used for
      * communicating with the device running SerialTCPClient.
      */
-    SerialTCPHost(Stream &sink) : sink(&sink)
+    SerialNetworkHost(Stream &sink) : sink(&sink)
     {
         _session_id = (uint16_t)micros();
         if (_session_id == 0)
             _session_id = 1;
 
         // Initialize filename buffers
-        for (int i = 0; i < MAX_TCP_CLIENTS; i++)
+        for (int i = 0; i < MAX_SLOTS; i++)
         {
             _ca_cert_filenames[i][0] = '\0';
+            _udp_states[i].packetData = nullptr; // Initialize UDP state
+            _udp_states[i].txBuffer = nullptr;   // Initialize UDP state
+        }
+    }
+
+    // Destructor to clean up dynamic memory used by UDP state
+    ~SerialNetworkHost()
+    {
+        for (int i = 0; i < MAX_SLOTS; i++)
+        {
+            if (_udp_states[i].packetData)
+                delete[] _udp_states[i].packetData;
+            if (_udp_states[i].txBuffer)
+                delete[] _udp_states[i].txBuffer;
         }
     }
 
@@ -617,27 +850,40 @@ public:
     }
 
     /**
-     * @brief Sets the Client object for a specific slot.
+     * @brief Sets the Client object for a specific slot (TCP).
      * @param client Pointer to the Client object (e.g., WiFiClient).
-     * @param slot The client slot (0 to MAX_TCP_CLIENTS-1).
+     * @param slot The client slot (0 to MAX_SLOTS-1).
      */
     void setClient(Client *client, int slot)
     {
-        if (slot >= 0 && slot < MAX_TCP_CLIENTS)
+        if (slot >= 0 && slot < MAX_SLOTS)
         {
-            _clients[slot] = client;
-            _client_connected_state[slot] = false;
+            _tcp_clients[slot] = client;
+            _tcp_connected_state[slot] = false;
+        }
+    }
+
+    /**
+     * @brief Sets the UDP Client object for a specific slot.
+     * @param udpClient Pointer to the UDP object (e.g., WiFiUDP).
+     * @param slot The client slot (0 to MAX_SLOTS-1).
+     */
+    void setUDPClient(UDP *udpClient, int slot)
+    {
+        if (slot >= 0 && slot < MAX_SLOTS)
+        {
+            _udp_clients[slot] = udpClient;
         }
     }
 
     /**
      * @brief Sets the StartTLS callback for a specific slot.
-     * @param slot The client slot (0 to MAX_TCP_CLIENTS-1).
+     * @param slot The client slot (0 to MAX_SLOTS-1).
      * @param callback The StartTLSCallback function pointer.
      */
     void setStartTLSCallback(int slot, StartTLSCallback callback)
     {
-        if (slot >= 0 && slot < MAX_TCP_CLIENTS)
+        if (slot >= 0 && slot < MAX_SLOTS)
         {
             _tls_callbacks[slot] = callback;
         }
@@ -683,3 +929,5 @@ public:
         processDataQueues();
     }
 };
+
+#endif

@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="assets/logo.svg" width="600" alt="SerialTCPClient Logo">
+  <img src="https://raw.githubusercontent.com/mobizt/SerialTCPClient/refs/heads/master/assets/logo.svg" width="600" alt="SerialTCPClient Logo">
 </p>
 
 <h1 align="center">SerialTCPClient</h1>
@@ -23,10 +23,11 @@
 
 ## ✨ Features
 
-- Bridge TCP client communication via serial interface.
+- Bridge **TCP** and **UDP** client communication via serial interface.
 - Designed for **Arduino boards** that lack built‑in WiFi/Ethernet.
 - Compatible with WiFi‑capable modules (ESP32/ESP8266/Raspberry Pi Pico W, MKR WiFi 1010, etc) acting as a network bridge.
 - Lightweight, header‑only design for embedded use.
+- Support for **SSL/TLS** (HTTPS) and **STARTTLS** upgrades.
 - Example sketches included for quick start.
 
 ---
@@ -95,7 +96,7 @@ The following benchmarks were collected running the **Basic HTTP GET** example w
 
 ## 🚀 Usage
 
-### Client Example
+### TCP Client Example
 
 ```cpp
 #define ENABLE_SERIALTCP_DEBUG // For debugging
@@ -140,7 +141,7 @@ void loop()
 }
 ```
 
-### Arduino UNO Client Example
+### Arduino UNO TCP Client Example
 
 ```cpp
 // For debugging
@@ -215,6 +216,43 @@ void loop()
 }
 ```
 
+### UDP Client Example (NTP)
+
+```cpp
+#define ENABLE_SERIALTCP_DEBUG
+#include <SerialUDPClient.h>
+
+SerialUDPClient udp(Serial2, 0 /* slot */); // UDP slot 0
+
+void setup()
+{
+  Serial.begin(115200);
+  Serial2.begin(115200);
+
+  udp.begin(2390); // Listen on local port
+
+  // Send NTP Packet
+  byte packet[48] = {0};
+  packet[0] = 0b11100011; // NTP protocol setup
+  
+  udp.beginPacket("pool.ntp.org", 123);
+  udp.write(packet, 48);
+  udp.endPacket();
+}
+
+void loop()
+{
+  int size = udp.parsePacket();
+  if (size > 0) {
+    Serial.print("Packet received, size: ");
+    Serial.println(size);
+    // Read data...
+    udp.read(packet, 48);
+    udp.stop();
+  }
+}
+```
+
 ### Host Example (ESP32)
 
 ```cpp
@@ -246,7 +284,7 @@ void setup() {
   ssl_client.setInsecure();
   ssl_client.setBufferSizes(2048, 1024);
 
-  host.setClient(&ssl_client, 0 /* slot */); // Corresponding to slot 0 on client device
+  host.setTCPClient(&ssl_client, 0 /* slot */); // Corresponding to slot 0 on client device
 
   // Notify the client that host is rebooted
   // Now the server connection was closed 
@@ -263,32 +301,35 @@ void loop() {
 
 ## 📚 API Highlights
 
-- Constructor  
-  `SerialTCPClient(Stream &serial, int slot)`
-- `connect(const char *host, uint16_t port)`  
-  Connect to a TCP server.
-- `available()`  
-  Returns number of bytes available to read.
-- `read()` / `read(uint8_t *buf, size_t size)`  
-  Read one or more bytes from the buffer.
-- `peek()`  
-  Look at the next byte without consuming it.
-- `flush()`  
-  Clear the internal buffer.
-- `availableForWrite()`  
-  Returns number of bytes that can be written.
-- `stop()`  
-  Close the connection.
-- `connected()`  
-  Check if still connected.
+### SerialTCPClient
+- **`connect(host, port)`**: Connect to a TCP server.
+- **`write(buffer, size)`**: Send data.
+- **`available()`**: Check for incoming data.
+- **`read()`**: Read byte from buffer.
+- **`stop()`**: Close connection.
+- **`pingHost()`**: Check if the bridge is alive.
+
+### SerialUDPClient
+- **`begin(localPort)`**: Start listening on a port.
+- **`beginPacket(host, port)`**: Start a UDP packet.
+- **`write(buffer, size)`**: Add data to packet.
+- **`endPacket()`**: Send the packet.
+- **`parsePacket()`**: Check for incoming UDP datagrams.
+- **`remoteIP()` / `remotePort()`**: Get sender details.
+
+### SerialNetworkHost
+- **`setTCPClient(Client*, slot)`**: Assign a `WiFiClient` or `WiFiClientSecure` to a slot.
+- **`setUDPClient(UDP*, slot)`**: Assign a `WiFiUDP` instance to a slot.
+- **`notifyBoot()`**: Reset connected clients on startup.
 
 ---
 
 ## 📂 Examples
 
 See the `examples` folder for full sketches:
-- **Basics/Client/HTTP GET:** Simple HTTP GET request.
+- **Basics/Client/HTTP_GET:** Simple HTTP GET request.
 - **Basics/Client/MQTT:** Using `ArduinoMqttClient` over SerialTCPClient.
+- **Basics/Client/UDP_NTP:** Network Time Protocol using UDP.
 - **Basics/Host:** Host example for the host device.
 
 ---

@@ -1,4 +1,11 @@
-#pragma once
+/*
+ * SPDX-FileCopyrightText: 2025 Suwatchai K. <suwatchai@outlook.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef SERIAL_NETWORK_PROTOCOL_H
+#define SERIAL_NETWORK_PROTOCOL_H
 
 #include <Arduino.h>
 #include <Stream.h>
@@ -27,32 +34,34 @@
 #define SERIAL_TCP_RX_BUFFER_SIZE 256
 #define SERIAL_TCP_HOST_TX_BUFFER_SIZE 256
 #define SERIAL_TCP_DATA_PAYLOAD_SIZE 64
+#define SERIAL_UDP_RX_BUFFER_SIZE 256 // <-- NEW DEFINITION
 const size_t MAX_PACKET_BUFFER_SIZE = 128;
 #else
 // Defaults for ESP32, ESP8266, etc.
 #define SERIAL_TCP_RX_BUFFER_SIZE 1024
 #define SERIAL_TCP_HOST_TX_BUFFER_SIZE 1024
 #define SERIAL_TCP_DATA_PAYLOAD_SIZE 250
+#define SERIAL_UDP_RX_BUFFER_SIZE 1024 // <-- NEW DEFINITION
 const size_t MAX_PACKET_BUFFER_SIZE = 256;
 #endif
 
 #define SERIAL_TCP_DATA_PACKET_TIMEOUT 500
 
 /**
- * @brief Contains the shared logic for the Serial-TCP bridge protocol.
+ * @brief Contains the shared logic for the Serial Network bridge protocol.
  */
-namespace SerialTCPProtocol
+namespace SerialNetworkProtocol
 {
     const uint8_t FRAME_DELIMITER = 0x00;
     const uint8_t GLOBAL_SLOT_ID = 0xFF;
     const uint32_t DEFAULT_CMD_TIMEOUT = 5000;
     const uint32_t SERIAL_TCP_CONNECT_TIMEOUT = 30000;
-    const uint8_t MAX_TCP_CLIENTS = 4;
+    const uint8_t MAX_SLOTS = 4; // Max number of independent network clients (TCP or UDP)
     const uint32_t AUTO_FLUSH_TIMEOUT_MS = 20;
 
     enum Command : uint8_t
     {
-        // Client -> Host Commands
+        // Client -> Host Global Commands (0x01 - 0x0F)
         CMD_C_SET_WIFI = 0x01,
         CMD_C_CONNECT_NET = 0x02,
         CMD_C_DISCONNECT_NET = 0x03,
@@ -61,25 +70,39 @@ namespace SerialTCPProtocol
         CMD_C_PING_HOST = 0x06,
         CMD_C_REBOOT_HOST = 0x07,
 
+        // Client -> Host TCP Commands (0x10 - 0x1F)
         CMD_C_CONNECT_HOST = 0x10,
         CMD_C_WRITE = 0x11,
-        CMD_C_STOP = 0x13,
+        CMD_C_STOP = 0x13, // Used to stop TCP connection or UDP listener
         CMD_C_IS_CONNECTED = 0x14,
         CMD_C_DATA_ACK = 0x15,
         CMD_C_START_TLS = 0x16,
         CMD_C_SET_CA_CERT = 0x17,
         CMD_C_POLL_DATA = 0x18,
 
-        // Host -> Client Commands
+        // Client -> Host UDP Commands (0x20 - 0x2F)
+        CMD_C_UDP_BEGIN = 0x20,
+        CMD_C_UDP_END = 0x21,
+        CMD_C_UDP_BEGIN_PACKET = 0x22,
+        CMD_C_UDP_WRITE_DATA = 0x23,
+        CMD_C_UDP_END_PACKET = 0x24,
+        CMD_C_UDP_PARSE_PACKET = 0x25,
+
+        // Host -> Client Commands (0x80 - 0x9F)
         CMD_H_ACK = 0x80,
         CMD_H_NAK = 0x81,
         CMD_H_NET_STATUS = 0x84,
         CMD_H_PING_RESPONSE = 0x86,
         CMD_H_HOST_RESET = 0x87,
 
+        // Host -> Client TCP Responses (0x90 - 0x9F)
         CMD_H_CONNECTED_STATUS = 0x94,
         CMD_H_DATA_PAYLOAD = 0x95,
-        CMD_H_POLL_RESPONSE = 0x96
+        CMD_H_POLL_RESPONSE = 0x96,
+        
+        // Host -> Client UDP Responses (0xA0 - 0xAF)
+        CMD_H_UDP_PACKET_INFO = 0xA0,
+        CMD_H_UDP_DATA_PAYLOAD = 0xA1,
     };
 
     // CRC16-MODBUS Implementation
@@ -236,4 +259,6 @@ namespace SerialTCPProtocol
         }
     };
 
-} // namespace SerialTCPProtocol
+} // namespace SerialNetworkProtocol
+
+#endif

@@ -2,9 +2,9 @@
   
   <defs>
     <linearGradient id="cloudStripes" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#4FC3F7"/>   
-      <stop offset="33%" stop-color="#81C784"/>  
-      <stop offset="66%" stop-color="#FFF176"/>  
+      <stop offset="0%" stop-color="#4FC3F7"/>    
+      <stop offset="33%" stop-color="#81C784"/>   
+      <stop offset="66%" stop-color="#FFF176"/>   
       <stop offset="100%" stop-color="#FFB74D"/> 
     </linearGradient>
 
@@ -19,7 +19,7 @@
     </linearGradient>
   </defs>
 
-  <text x="300" y="85" font-size="20" fill="#E65100" text-anchor="middle" font-weight="bold">Serial ↔ TCP/IP</text>
+  <text x="300" y="85" font-size="20" fill="#E65100" text-anchor="middle" font-weight="bold">Serial ↔ TCP/UDP</text>
 
   <g transform="translate(100, 100)">
     <rect x="-8" y="15" width="10" height="6" fill="#333" />

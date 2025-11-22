@@ -5,7 +5,7 @@
  * ===============================================
  * Runs on: Any Arduino device.
  * Host: Requires the "Basics/Host" sketch running on the host.
- * Server: Runs examples/Basics/HTTP Streaming/Server/sse.php
+ * Server: Runs examples/Basics/HTTP_Streaming/Server/sse.php
  *
  * Purpose: Demonstrates reading a chunked HTTP stream.
  */

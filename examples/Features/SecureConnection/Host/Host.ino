@@ -12,8 +12,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
-#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialTCPHost
-#include <SerialTCPHost.h>
+#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialNetworkHost
+#include <SerialNetworkHost.h>
 
 // Filesystem (e.g., LittleFS) for storing certs
 #include "FS.h"
@@ -25,7 +25,7 @@ const char *password = "DEFAULT_WIFI_PASSWORD";
 
 // Serial TCP Client Config
 const long SERIAL_BAUD = 115200; // Coresponding to the baud rate used in the client Serial
-SerialTCPHost host(Serial2);
+SerialNetworkHost host(Serial2);
 
 WiFiClient basic_client;
 WiFiClientSecure ssl_client;
@@ -68,7 +68,7 @@ void setup()
 {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("SerialTCPHost Secure Connection Example...");
+    Serial.println("SerialNetworkHost Secure Connection Example...");
 
     // Initialize Filesystem
     if (!LittleFS.begin(true))
@@ -121,8 +121,8 @@ void setup()
     Serial.println("\nWiFi Connected!");
 
     // Set up slots
-    host.setClient(&basic_client, 0 /* slot */); // Coresponding to slot 0 on client device
-    host.setClient(&ssl_client, 1 /* slot */);   // Coresponding to slot 1 on client device
+    host.setTCPClient(&basic_client, 0 /* slot */); // Coresponding to slot 0 on client device
+    host.setTCPClient(&ssl_client, 1 /* slot */);   // Coresponding to slot 1 on client device
 
     // Notify the client that host is rebooted
     // Now the server connection was closed

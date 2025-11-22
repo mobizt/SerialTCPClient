@@ -10,16 +10,16 @@
 
 #include <WiFi.h>
 
-#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialTCPHost
-#include <SerialTCPHost.h>
-
+#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialNetworkHost
+#include <SerialNetworkHost.h>
+#include <WiFiClientSecure.h>
 // Network Config
 String current_ssid = "DEFAULT_WiFI_SSID";
 String current_pass = "DEFAULT_WiFI_PASSWORD";
 
 // Serial TCP Host Config
 const long SERIAL_BAUD = 115200; // Coresponding to the baud rate used in the client Serial
-SerialTCPHost host(Serial2);
+SerialNetworkHost host(Serial2);
 
 WiFiClientSecure client; // Netwotk client or SSL client
 
@@ -100,7 +100,7 @@ void setup()
     }
     Serial.println("\nWiFi Connected!");
 
-    host.setClient(&client, 0 /* slot */); // Coresponding to slot 0 on client device
+    host.setTCPClient(&client, 0 /* slot */); // Coresponding to slot 0 on client device
 
     // Notify the client that host is rebooted
     // Now the server connection was closed

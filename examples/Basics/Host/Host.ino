@@ -9,8 +9,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
-#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialTCPHost
-#include <SerialTCPHost.h>
+#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialNetworkHost
+#include <SerialNetworkHost.h>
 
 // --- Persistence Configuration ---
 // For ESP32, we use the Preferences library (NVS) to store WiFi credentials.
@@ -30,7 +30,7 @@ const int CLIENT_SLOT = 0;       // Corresponding to Network client or SSL clien
 const long SERIAL_BAUD = 115200; // Corresponding to the baud rate used in the client Serial
 
 WiFiClientSecure ssl_client; // Or WiFiClient for plain text
-SerialTCPHost host(Serial2); // Use Serial2 for communication
+SerialNetworkHost host(Serial2); // Use Serial2 for communication
 
 
 /**

@@ -13,8 +13,8 @@
 // https://github.com/mobizt/ESP_SSLClient
 #include <ESP_SSLClient.h>
 
-#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialTCPHost
-#include <SerialTCPHost.h>
+#define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialNetworkHost
+#include <SerialNetworkHost.h>
 
 // Network Config
 const char *ssid = "DEFAULT_WIFI_SSID";
@@ -22,7 +22,7 @@ const char *password = "DEFAULT_WIFI_PASSWORD";
 
 // Bridge Config
 const long SERIAL_BAUD = 115200; // Coresponding to the baud rate used in the client Serial
-SerialTCPHost host(Serial2);
+SerialNetworkHost host(Serial2);
 
 // We will create two clients:
 WiFiClient basic_client;
@@ -48,7 +48,6 @@ void setup()
 {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("SerialTCPHost STARTTLS Example...");
     Serial2.begin(SERIAL_BAUD);
     host.setLocalDebugLevel(1);
 
@@ -66,7 +65,7 @@ void setup()
 
     ssl_client.setBufferSizes(2048 /* rx buffer */, 1024 /* tx buffer */);
 
-    host.setClient(&ssl_client, 0 /* slot */); // Coresponding to slot 0 on host device
+    host.setTCPClient(&ssl_client, 0 /* slot */); // Coresponding to slot 0 on host device
 
     // Register the STARTTLS Callback
     // We only register it for the secure-capable slot

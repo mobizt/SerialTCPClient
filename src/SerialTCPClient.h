@@ -1,12 +1,19 @@
-#pragma once
+/*
+ * SPDX-FileCopyrightText: 2025 Suwatchai K. <suwatchai@outlook.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef SERIAL_TCP_CLIENT_H
+#define SERIAL_TCP_CLIENT_H
 
 #include <Arduino.h>
 #include <Stream.h>
 #include <Client.h>
-#include "SerialTCPProtocol.h"
+#include "SerialNetworkProtocol.h"
 
 // Bring in the protocol namespace
-using namespace SerialTCPProtocol;
+using namespace SerialNetworkProtocol;
 
 // Buffers
 #if defined(__AVR__) || defined(ARDUINO_ARCH_AVR)
@@ -905,3 +912,5 @@ public:
     }
 #endif
 };
+
+#endif
