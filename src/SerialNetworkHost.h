@@ -854,7 +854,7 @@ public:
      * @param client Pointer to the Client object (e.g., WiFiClient).
      * @param slot The client slot (0 to MAX_SLOTS-1).
      */
-    void setClient(Client *client, int slot)
+    void setTCPClient(Client *client, int slot)
     {
         if (slot >= 0 && slot < MAX_SLOTS)
         {

@@ -118,7 +118,7 @@ void setup()
   host.setConnectNetworkCallback(onConnectNetwork);
 
   // Bind the network client
-  host.setClient(&ssl_client, CLIENT_SLOT);
+  host.setTCPClient(&ssl_client, CLIENT_SLOT);
   host.setLocalDebugLevel(1);
 
   Serial.print("[Host] Connecting to ");
