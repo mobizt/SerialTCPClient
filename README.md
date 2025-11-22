@@ -282,41 +282,43 @@ void loop()
 ```cpp
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <WiFiUdp.h>
 
 #define ENABLE_SERIALTCP_DEBUG // For debugging
-#include <SerialTCPHost.h>
+#include <SerialNetworkHost.h> // Note: Use SerialNetworkHost
 
 const char* ssid     = "DEFAULT_WIFI_SSID";
 const char* password = "DEFAULT_PASSWORD";
 
 WiFiClientSecure ssl_client;
-SerialTCPHost host(Serial2);
+WiFiUDP udp_client;
+
+SerialNetworkHost host(Serial2);
 
 void setup() {
   Serial.begin(115200);
-
-  // The baud rate should be matched the client baud rate.
   Serial2.begin(115200, SERIAL_8N1, 16, 17);
 
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("WiFi connected");
-
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  
   ssl_client.setInsecure();
-  ssl_client.setBufferSizes(2048, 1024);
 
-  host.setTCPClient(&ssl_client, 0 /* slot */); // Corresponding to slot 0 on client device
+  // Register Clients
+  // Assign TCP Client (e.g., for HTTPS) to Slot 0
+  host.setTCPClient(&ssl_client, 0 /* slot 0 */); 
+  
+  // Assign UDP Client (e.g., for NTP) to Slot 1
+  host.setUDPClient(&udp_client, 1 /* slot 1 */); 
 
-  // Notify the client that host is rebooted
-  // Now the server connection was closed 
+  // Notify the client device that the host has rebooted.
+  // This resets the client's session state and prevents connection errors.
   host.notifyBoot();
 }
 
 void loop() {
-  // Requirements for Host operation
+  // Mandatory: This function handles all serial traffic, packet processing,
+  // TCP data queueing, and manages ACK/NAK responses.
   host.loop();
 }
 ```
