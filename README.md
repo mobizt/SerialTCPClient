@@ -18,12 +18,12 @@
 Bring secure TCP/UDP networking to any Arduino board via a simple serial bridge.
 </p>
 
-`SerialTCPClient` provides a simple way to use TCP/UDP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
+`SerialTCPClient` provides a simple way to use TCP or UDP client functionality over a serial link, enabling boards without native networking to communicate through a WiFi‑capable device.
 
 It is designed for Arduino boards such as AVR, STM32, and Teensy that lack built‑in WiFi or Ethernet, offering a straightforward alternative to firmware‑based solutions available only on certain boards. By bridging communication through modules like ESP32, ESP8266, Raspberry Pi Pico W, or MKR WiFi 1010, the library makes network access broadly available. With support for SSL/TLS and protocol upgrades, SerialTCPClient enables secure communication without requiring firmware‑level certificate management, making it a practical and flexible option for embedded developers.
 
 <p align="center">
-  <img src="assets/diagram.svg" alt="SerialTCPClient communication flow" width="600"/>
+  <img src="https://raw.githubusercontent.com/mobizt/SerialTCPClient/refs/heads/master/assets/diagram.svg" alt="SerialTCPClient communication flow" width="600"/>
 </p>
 
 ---
@@ -41,13 +41,25 @@ It is designed for Arduino boards such as AVR, STM32, and Teensy that lack built
 
 ## 📦 Installation
 
-1. Clone this repository into your Arduino `libraries` folder:
-   ```bash
-   git clone https://github.com/mobizt/SerialTCPClient.git
-   ```
+### Arduino IDE  
+You can install **SerialTCPClient** directly from the **Library Manager**:  
+1. Open Arduino IDE.  
+2. Go to **Sketch → Include Library → Manage Libraries…**  
+3. Search for **SerialTCPClient**.  
+4. Click **Install**.  
 
-2. Or download the ZIP from GitHub and install via Arduino IDE:
-   - Sketch → Include Library → Add .ZIP Library…
+### PlatformIO  
+Add **SerialTCPClient** via the PlatformIO Library Registry:  
+1. Open your project’s `platformio.ini`.  
+2. Add the library under `lib_deps`:  
+
+```ini
+lib_deps =
+    mobizt/SerialTCPClient
+```
+
+3. Build your project — PlatformIO will automatically fetch and install the library.
+
 
 ---
 
@@ -337,7 +349,7 @@ void loop() {
 
 ## 📂 Examples
 
-See the `examples` folder for full sketches:
+See the [`examples`](/examples/) folder for full sketches:
 - **Basics/Client/HTTP_GET:** Simple HTTP GET request.
 - **Basics/Client/MQTT:** Using `ArduinoMqttClient` over SerialTCPClient.
 - **Basics/Client/UDP_NTP:** Network Time Protocol using UDP.
