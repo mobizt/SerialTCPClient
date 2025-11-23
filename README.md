@@ -3,7 +3,28 @@
   <img src="https://raw.githubusercontent.com/mobizt/SerialTCPClient/refs/heads/master/assets/logo.svg" width="600" alt="SerialTCPClient Logo">
 </p>
 
-<h1 align="center">SerialTCPClient</h1>
+<h1 align="center">SerialTCPClient [DEPRECATED]</h1>
+
+<h2 align="center">⚠️ DEPRECATION WARNING ⚠️</h2>
+
+<p align="center"><strong>This library is no longer maintained and has been superseded.</strong></p>
+
+<p align="center">Please use the new <strong>SerialNetworkBridge</strong> library for all future projects and updates.</p>
+
+<h3 align="center">👉 <a href="https://github.com/mobizt/SerialNetworkBridge">Go to SerialNetworkBridge</a> 👈</h3>
+
+---
+
+## ℹ️ Migration Notice
+
+**SerialTCPClient** has been replaced by **SerialNetworkBridge**. The new library offers improved performance, better architecture, and continued support.
+
+If you are currently using `SerialTCPClient`, we highly recommend migrating your project to `SerialNetworkBridge`. The documentation below is kept for **legacy reference only**.
+
+---
+---
+
+# Legacy Documentation (Archived)
 
 <p align="center">
   <a href="https://www.arduino.cc/">
@@ -45,8 +66,7 @@ Bring secure TCP/UDP networking to any Arduino board via a simple serial bridge.
 ### Arduino IDE  
 You can install **SerialTCPClient** directly from the **Library Manager**:  
 1. Open Arduino IDE.  
-2. Go to **Sketch → Include Library → Manage Libraries…**  
-3. Search for **SerialTCPClient**.  
+2. Go to **Sketch → Include Library → Manage Libraries…** 3. Search for **SerialTCPClient**.  
 4. Click **Install**.  
 
 ### PlatformIO  
@@ -54,10 +74,8 @@ Add **SerialTCPClient** via the PlatformIO Library Registry:
 1. Open your project’s `platformio.ini`.  
 2. Add the library under `lib_deps`:  
 
-```ini
 lib_deps =
     mobizt/SerialTCPClient
-```
 
 3. Build your project — PlatformIO will automatically fetch and install the library.
 
@@ -121,7 +139,6 @@ The following benchmarks were collected running the **Basic HTTP GET** example w
 ## 🚀 Usage
 
 ### TCP Client Example
-
 ```cpp
 #define ENABLE_SERIALTCP_DEBUG // For debugging
 #include <SerialTCPClient.h>
@@ -164,200 +181,6 @@ void loop()
 {
 }
 ```
-
-### Arduino UNO TCP Client Example
-
-```cpp
-// For debugging
-// Remove ENABLE_SERIALTCP_DEBUG for AVR 
-// to save ram and flash usage on production
-#define ENABLE_SERIALTCP_DEBUG 
-
-#include <SoftwareSerial.h>
-#include <SerialTCPClient.h>
-
-// RX on Pin 2, TX on Pin 3
-SoftwareSerial softSerial(2, 3);
-
-SerialTCPClient client(softSerial, 0); // Corresponding to Network client
-                                       // or SSL client slot 0 on the host
-
-const char server[] = "httpbin.org";
-const int port = 443; // HTTPS Port
-
-void setup()
-{
-
-  Serial.begin(115200);
-  while (!Serial)
-  {
-    ; // wait for serial port to connect
-  }
-
-  softSerial.begin(9600);
-
-  Serial.print(F("Connecting to "));
-  Serial.print(server);
-  Serial.print(F(":"));
-  Serial.println(port);
-
-  if (client.connect(server, port))
-  {
-    Serial.println(F("Connected securely! Sending request..."));
-
-    client.println(F("GET /get HTTP/1.1"));
-    client.println(F("Host: httpbin.org"));
-    client.println(F("Connection: close"));
-    client.println(); // Empty line to end headers
-
-    Serial.println(F("Request sent. Waiting for response..."));
-
-    // Read Response (Inside Setup)
-    // Loop until connection closes or data is processed
-    while (client.available())
-    {
-      if (client.available())
-      {
-        char c = client.read();
-        Serial.write(c);
-      }
-    }
-
-    Serial.println();
-    Serial.println(F("Server disconnected."));
-    client.stop();
-  }
-  else
-  {
-    Serial.println(F("Connection failed!"));
-  }
-
-  Serial.println(F("Test Complete."));
-}
-
-void loop()
-{
-}
-```
-
-### UDP Client Example (NTP)
-
-```cpp
-#define ENABLE_SERIALTCP_DEBUG
-#include <SerialUDPClient.h>
-
-SerialUDPClient udp(Serial2, 0 /* slot */); // UDP slot 0
-
-void setup()
-{
-  Serial.begin(115200);
-  Serial2.begin(115200);
-
-  udp.begin(2390); // Listen on local port
-
-  // Send NTP Packet
-  byte packet[48] = {0};
-  packet[0] = 0b11100011; // NTP protocol setup
-  
-  udp.beginPacket("pool.ntp.org", 123);
-  udp.write(packet, 48);
-  udp.endPacket();
-}
-
-void loop()
-{
-  int size = udp.parsePacket();
-  if (size > 0) {
-    Serial.print("Packet received, size: ");
-    Serial.println(size);
-    // Read data...
-    udp.read(packet, 48);
-    udp.stop();
-  }
-}
-```
-
-### Host Example (ESP32)
-
-```cpp
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <WiFiUdp.h>
-
-#define ENABLE_SERIALTCP_DEBUG // For debugging
-#include <SerialNetworkHost.h> // Note: Use SerialNetworkHost
-
-const char* ssid     = "DEFAULT_WIFI_SSID";
-const char* password = "DEFAULT_PASSWORD";
-
-WiFiClientSecure ssl_client;
-WiFiUDP udp_client;
-
-SerialNetworkHost host(Serial2);
-
-void setup() {
-  Serial.begin(115200);
-  Serial2.begin(115200, SERIAL_8N1, 16, 17);
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
-  
-  ssl_client.setInsecure();
-
-  // Register Clients
-  // Assign TCP Client (e.g., for HTTPS) to Slot 0
-  host.setTCPClient(&ssl_client, 0 /* slot 0 */); 
-  
-  // Assign UDP Client (e.g., for NTP) to Slot 1
-  host.setUDPClient(&udp_client, 1 /* slot 1 */); 
-
-  // Notify the client device that the host has rebooted.
-  // This resets the client's session state and prevents connection errors.
-  host.notifyBoot();
-}
-
-void loop() {
-  // Mandatory: This function handles all serial traffic, packet processing,
-  // TCP data queueing, and manages ACK/NAK responses.
-  host.loop();
-}
-```
-
----
-
-## 📚 API Highlights
-
-### SerialTCPClient
-- **`connect(host, port)`**: Connect to a TCP server.
-- **`write(buffer, size)`**: Send data.
-- **`available()`**: Check for incoming data.
-- **`read()`**: Read byte from buffer.
-- **`stop()`**: Close connection.
-- **`pingHost()`**: Check if the bridge is alive.
-
-### SerialUDPClient
-- **`begin(localPort)`**: Start listening on a port.
-- **`beginPacket(host, port)`**: Start a UDP packet.
-- **`write(buffer, size)`**: Add data to packet.
-- **`endPacket()`**: Send the packet.
-- **`parsePacket()`**: Check for incoming UDP datagrams.
-- **`remoteIP()` / `remotePort()`**: Get sender details.
-
-### SerialNetworkHost
-- **`setTCPClient(Client*, slot)`**: Assign a `WiFiClient` or `WiFiClientSecure` to a slot.
-- **`setUDPClient(UDP*, slot)`**: Assign a `WiFiUDP` instance to a slot.
-- **`notifyBoot()`**: Reset connected clients on startup.
-
----
-
-## 📂 Examples
-
-See the [`examples`](/examples/) folder for full sketches:
-- **Basics/Client/HTTP_GET:** Simple HTTP GET request.
-- **Basics/Client/MQTT:** Using `ArduinoMqttClient` over SerialTCPClient.
-- **Basics/Client/UDP_NTP:** Network Time Protocol using UDP.
-- **Basics/Host:** Host example for the host device.
-
 ---
 
 ## ⚖️ License

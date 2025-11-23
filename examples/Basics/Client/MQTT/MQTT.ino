@@ -8,6 +8,7 @@
  */
 
 #define ENABLE_SERIALTCP_DEBUG // Enable debug prints for SerialTCPClient
+#include <WiFi.h>
 #include <SerialTCPClient.h>
 #include <ArduinoMqttClient.h> // Include the standard MQTT library
 

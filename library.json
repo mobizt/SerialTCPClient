@@ -1,8 +1,8 @@
 {
   "name": "SerialTCPClient",
-  "version": "0.0.4",
-  "description": "A serial-to-network bridge allowing non-networked Arduino boards (Uno, Nano, etc.) to perform TCP, UDP, and SSL/TLS client operations via a WiFi-capable host (ESP32/ESP8266/Raspberry Pi Pico W).",
-  "keywords": ["TCP", "UDP", "serial", "bridge", "WiFi", "ESP32", "ESP8266", "Raspberry Pi Pico W", "client", "SSL", "TLS"],
+  "version": "0.0.5",
+  "description": "[DEPRECATED] Use SerialNetworkBridge instead. A serial-to-network bridge allowing non-networked Arduino boards (Uno, Nano, etc.) to perform TCP, UDP, and SSL/TLS client operations.",
+  "keywords": ["deprecated", "TCP", "UDP", "serial", "bridge", "WiFi", "ESP32", "ESP8266", "Raspberry Pi Pico W", "client", "SSL", "TLS"],
   "repository": {
     "type": "git",
     "url": "https://github.com/mobizt/SerialTCPClient"
